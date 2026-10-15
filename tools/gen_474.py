@@ -21,8 +21,12 @@ MAT = 'SUS304'
 # 表头“表面”取自 NO.474.xlsx 的“表面”列（由 tools/surface_474.py 按图纸材料+技术要求补填）
 
 
+# 无库存板厚替换为常用板料（用户确认：15mm 一律用 16mm）
+THK_SUB = {15: 16}
+
+
 def lab(t, n, mat=MAT):
-    t = ('%g' % t)
+    t = ('%g' % THK_SUB.get(t, t))
     return '%s-%smm,%d件' % (mat, t, n)
 
 
