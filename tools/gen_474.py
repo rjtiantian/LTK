@@ -11,7 +11,7 @@ import ezdxf, openpyxl
 from ezdxf import bbox as ezbbox
 
 sys.path.insert(0, os.path.dirname(__file__))
-from sheetlib import Piece, extract, drop_concentric_outer, bd, TAP, CUT, BEND
+from sheetlib import Piece, extract, drop_concentric_outer, bd, TAP, CUT, BEND, relief_params
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D474 = os.path.join(ROOT, '474')
@@ -240,11 +240,13 @@ def _(q):
 @part('0185754A')
 def _(q):
     t = 1.5; w = bd(t)          # 护罩：顶板125x85，两侧板高42，右侧板底部内折27，后边下折挡板15
+    # 后角释放槽按“释放槽样式.dxf”：侧板为全宽翻边，后挡板每侧内缩 s，V 形槽
+    rp, rg, rs = relief_params(t, w)
     p = Piece()
-    p.outline([(-39.7, 0), (189.4, 0), (189.4, 85), (125, 85), (125, 82), (122, 82), (122, 85), (123, 85),
-               (123, 97.7, 2), (2, 97.7, 2), (2, 85), (3, 85), (3, 82), (0, 82), (0, 85), (-39.7, 85, 5)])
+    p.outline([(-39.7, 0), (189.4, 0), (189.4, 85), (125 + rg, 85), (125 - rp, 85 - rp), (125 - rs, 85 + rg),
+               (125 - rs, 97.7, 2), (rs, 97.7, 2), (rs, 85 + rg), (rp, 85 - rp), (-rg, 85), (-39.7, 85, 5)])
     p.bend(1.15, 0, 1.15, 85, w).bend(123.85, 0, 123.85, 85, w).bend(163.55, 0, 163.55, 85, w)
-    p.bend(3, 83.85, 122, 83.85, w)
+    p.bend(0, 83.85, 125, 83.85, w)
     p.circle(8, 91.7, 6.5).circle(90, 91.7, 6.5)
     return [(lab(t, q), p)]
 

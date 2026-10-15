@@ -371,3 +371,12 @@ def fold_edge(p, x_edge, L, w, side='left', tol=0.05):
     xc = x_edge - s * w / 2
     p.bend(xc, y_lo, xc, y_hi, w)
     return y_lo, y_hi
+
+
+def relief_params(t, w):
+    """角部释放槽参数（按“释放槽样式.dxf”）：
+    p = 2t（V 形槽尖点伸入底板的距离，沿两方向各 p）
+    g = 2t - BD（槽口在两翻边侧边上距底板外形线的距离）
+    s = t + 0.1（相邻两翻边中，内缩翻边每侧内缩量；另一翻边保持全宽）"""
+    p = 2 * t
+    return p, p - w, t + 0.1
