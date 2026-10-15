@@ -15,7 +15,7 @@ BD_Q235B = {0.5: 0.8, 0.8: 1.4, 1: 1.7, 1.2: 2, 1.5: 2.5, 2: 3.5, 2.5: 4.25, 3: 
 
 # 螺纹孔按小径开孔（与 NO.441 人工下料一致：M4->3.24, M5->4.13, M6->4.92, M8->6.65）
 TAP = {'M3': 2.459, 'M4': 3.242, 'M5': 4.134, 'M6': 4.917, 'M8': 6.647,
-       'M10': 8.376, 'M12': 10.106, 'M16': 13.835}
+       'M10': 8.376, 'M12': 10.106, 'M16': 13.835, 'M20': 17.294}
 
 
 def bd(thk, mat='SUS304'):
@@ -184,7 +184,7 @@ def extract(path, region, layers=(CUT,), drop=None):
     doc = ezdxf.readfile(path)
     x0, y0, x1, y1 = region
     p = Piece()
-    eps = 0.05
+    eps = 0.3
     for e in doc.modelspace():
         if e.dxf.layer not in layers:
             continue
@@ -233,3 +233,141 @@ def drop_concentric_outer(p, keep_outline_d=None, tol=0.05):
                 remove.add(i)
     p.ents = [e for i, e in enumerate(p.ents) if i not in remove]
     return p
+
+
+# ---------------------------------------------------------------- 断开视图还原
+def _break_deltas(doc, region, axis=0):
+    """找出区域内的断开线(图层“折线 (ISO)”)，用尺寸标注的覆盖文字求每处断开的真实缺口量。
+    返回 [(a, b, delta)]：断开左边界 a、右边界 b（图纸坐标）、需补的长度 delta。"""
+    x0, y0, x1, y1 = region
+    lo, hi = (x0, x1) if axis == 0 else (y0, y1)
+    zz = []
+    for e in doc.modelspace():
+        if e.dxf.layer != '折线 (ISO)':
+            continue
+        b = ezbbox.extents([e])
+        if not b.has_data:
+            continue
+        if b.extmax.x < x0 - 1 or b.extmin.x > x1 + 1 or b.extmax.y < y0 - 1 or b.extmin.y > y1 + 1:
+            continue
+        c = (b.center.x if axis == 0 else b.center.y)
+        if lo < c < hi:
+            zz.append(c)
+    zz.sort()
+    # 成对：两条折线距离 < 20 视为一处断开
+    brk = []
+    i = 0
+    while i < len(zz):
+        if i + 1 < len(zz) and zz[i + 1] - zz[i] < 20:
+            brk.append([zz[i], zz[i + 1], None]); i += 2
+        else:
+            i += 1
+    # 用尺寸求 delta
+    dims = []
+    for e in doc.modelspace().query('DIMENSION'):
+        t = (e.dxf.get('text') or '').strip()
+        try:
+            T = float(t)
+        except ValueError:
+            continue
+        p2, p3 = e.dxf.get('defpoint2'), e.dxf.get('defpoint3')
+        if p2 is None or p3 is None:
+            continue
+        a, b = (p2.x, p3.x) if axis == 0 else (p2.y, p3.y)
+        a, b = min(a, b), max(a, b)
+        # 尺寸方向需与 axis 一致
+        ang = e.dxf.get('angle', 0) or 0
+        if (axis == 0 and abs(math.sin(math.radians(ang))) > 0.01) or (axis == 1 and abs(math.cos(math.radians(ang))) > 0.01):
+            continue
+        dims.append((a, b, T - (b - a)))
+    for _ in range(5):
+        for a, b, dl in dims:
+            inside = [k for k in brk if a < k[0] and k[1] < b]
+            unknown = [k for k in inside if k[2] is None]
+            if len(unknown) == 1:
+                unknown[0][2] = dl - sum(k[2] for k in inside if k[2] is not None)
+    return [tuple(k) for k in brk]
+
+
+def extract_unbroken(path, region, drop=None, axis=0, layers=(CUT,)):
+    """提取带断开(打断)画法的视图，按尺寸还原成真实长度，并补齐断开处的轮廓线"""
+    doc = ezdxf.readfile(path)
+    brk = _break_deltas(doc, region, axis)
+    if any(d is None for _, _, d in brk):
+        raise ValueError('断开处长度无法由尺寸确定: %s %s' % (path, brk))
+    x0, y0 = region[0], region[1]
+
+    def shift(v):
+        s = 0.0
+        for a, b, d in brk:
+            if v > (a + b) / 2:
+                s += d
+        return s
+
+    p = extract(path, region, layers=layers, drop=drop)
+    q = Piece()
+    for kind, data, attr in p.ents:
+        def f(x, y):
+            v = (x + x0) if axis == 0 else (y + y0)
+            s = shift(v)
+            return (x + s, y) if axis == 0 else (x, y + s)
+        tmp = Piece(); tmp.ents = [(kind, data, attr)]
+        q.ents += tmp._map(f).ents
+    # 补线：断开左右两侧同一高度的端点相连
+    for a, b, d in brk:
+        sa = shift(a - 1e-6) ; sb = shift(b + 1e-6)
+        al, bl = (a - x0, b - x0) if axis == 0 else (a - y0, b - y0)
+        left, right = [], []
+        for kind, data, attr in q.ents:
+            if kind != 'LINE':
+                continue
+            for pt in data:
+                u, w = (pt[0], pt[1]) if axis == 0 else (pt[1], pt[0])
+                if abs(u - (al + sa)) < 1.0:
+                    left.append((u, w))
+                elif abs(u - (bl + sb)) < 1.0:
+                    right.append((u, w))
+        for u, w in left:
+            for u2, w2 in right:
+                if abs(w - w2) < 0.05:
+                    if axis == 0:
+                        q.line(u, w, u2, w2)
+                    else:
+                        q.line(w, u, w2, u2)
+                    break
+    return q
+
+
+def stretch_tab(p, xb, angle_deg, side='left'):
+    """小角度折弯边在视图中被投影缩短：把 xb 左(右)侧部分按 1/cos(angle) 拉伸还原"""
+    k = 1.0 / math.cos(math.radians(angle_deg))
+    if side == 'left':
+        f = lambda x, y: ((xb - (xb - x) * k) if x < xb else x, y)
+    else:
+        f = lambda x, y: ((xb + (x - xb) * k) if x > xb else x, y)
+    return p._map(f)
+
+
+def fold_edge(p, x_edge, L, w, side='left', tol=0.05):
+    """把视图中位于 x=x_edge 的竖直外轮廓线替换为向外展开的翻边(外形长 L，BD=w)。
+    返回 (y_lo, y_hi)。side='left' 表示翻边向 -x 展开。"""
+    ys = []
+    keep = []
+    for e in p.ents:
+        k, data, a = e
+        if k == 'LINE':
+            (x0, y0), (x1, y1) = data
+            if abs(x0 - x_edge) < tol and abs(x1 - x_edge) < tol:
+                ys += [y0, y1]
+                continue
+        keep.append(e)
+    p.ents = keep
+    if not ys:
+        raise ValueError('未找到边线 x=%s' % x_edge)
+    y_lo, y_hi = min(ys), max(ys)
+    s = -1 if side == 'left' else 1
+    xf = x_edge + s * (L - w)
+    p.poly([(x_edge, y_lo), (xf, y_lo), (xf, y_hi), (x_edge, y_hi)], False)
+    xc = x_edge - s * w / 2
+    p.bend(xc, y_lo, xc, y_hi, w)
+    return y_lo, y_hi

@@ -18,7 +18,7 @@ D474 = os.path.join(ROOT, '474')
 DXF = lambda n: os.path.join(D474, 'DXF', n)
 
 MAT = 'SUS304'
-SURF = 'SUS304-拉丝'   # 474 清单无“表面”列；图纸材料均为 SUS304，技术要求为表面拉丝
+# 表头“表面”取自 NO.474.xlsx 的“表面”列（由 tools/surface_474.py 按图纸材料+技术要求补填）
 
 
 def lab(t, n, mat=MAT):
@@ -136,7 +136,7 @@ def _(q):
         p.tap(x, 10, 'M6').tap(x, 210, 'M6')
     p.tap(-14, 110, 'M6')
     a02 = plate('0185727A00.idw_图纸_3.dxf', (47.38, 105.14, 227.38, 135.14))
-    return [(lab(3, q) + '(0185727A01)', p), (lab(5, q * 2) + '(0185727A02)', a02)]
+    return [(lab(3, q), p), (lab(5, q * 2), a02)]
 
 
 @part('0185728A')
@@ -293,7 +293,7 @@ def _(q):
     for x in (195, 255, 315, 375):
         p.slot(x, 47.5, x + 30, 47.5, 9).slot(x, 82.5, x + 30, 82.5, 9)
     a02 = plate('1190107A00.idw_图纸_3.dxf', (87.06, 105.56, 155.06, 140.56))
-    return [(lab(t, q) + '(1190107A01)', p), (lab(10, q) + '(1190107A02)', a02)]
+    return [(lab(t, q), p), (lab(10, q), a02)]
 
 
 # ---------------------------------------------------------------- 复杂件：占位，人工补全
@@ -308,6 +308,11 @@ PARTS['0185750A'] = todo(2.5, '0185750A 待人工展开（长槽型件，展开�
 PARTS['0185751A'] = todo(2.5, '0185751A 为0185750A镜像件，待人工展开')
 PARTS['0186033A'] = todo(1.5, '0186033A 待人工展开（围板+顶板）')
 PARTS['1530201A'] = todo(4, '1530201A 待人工展开（135°多折弯支座）')
+
+
+import parts_474b
+_part, _mirror_of = parts_474b.setup(PARTS, DXF, lab, plate, circles, todo)
+parts_474b.setup2(PARTS, DXF, lab, plate, circles, todo, _part, _mirror_of)
 
 
 # ---------------------------------------------------------------- 输出
@@ -344,7 +349,7 @@ def build(out_path):
         date, no, order, code, name, qty = r[0], r[1], r[2], r[3], r[4], int(r[5])
         dstr = date.strftime('%Y-%m-%d') if isinstance(date, datetime.datetime) else str(date)
         f = PARTS.get(code)
-        surf = SURF if f else ''
+        surf = (r[7] or '').strip() if r[7] else ''
         hdr = '·'.join([dstr, str(no), order, code, name, '%d件' % qty] + ([surf] if surf else []))
         hw = text_w(hdr)
         msp.add_text(hdr, height=TXT_H, dxfattribs=dict(layer='0', color=2, style='Z-English', insert=(x, HDR_Y)))
