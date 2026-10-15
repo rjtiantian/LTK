@@ -380,3 +380,42 @@ def relief_params(t, w):
     s = t + 0.1（相邻两翻边中，内缩翻边每侧内缩量；另一翻边保持全宽）"""
     p = 2 * t
     return p, p - w, t + 0.1
+
+
+def clip_out_box(p, x0, y0, x1, y1, layer=CUT, eps=1e-6):
+    """删除/裁剪切割层直线中落在矩形框内的部分（用于在已有轮廓上开释放槽）"""
+    out = []
+    for e in p.ents:
+        k, d, a = e
+        if k != 'LINE' or a.get('layer') != layer:
+            out.append(e); continue
+        (ax, ay), (bx, by) = d
+        # Liang-Barsky 求线段在框内的参数区间
+        t0, t1 = 0.0, 1.0
+        dx, dy = bx - ax, by - ay
+        ok = True
+        for pp, qq in ((-dx, ax - x0), (dx, x1 - ax), (-dy, ay - y0), (dy, y1 - ay)):
+            if abs(pp) < 1e-12:
+                if qq < -eps:
+                    ok = False
+                continue
+            r = qq / pp
+            if pp < 0:
+                t0 = max(t0, r)
+            else:
+                t1 = min(t1, r)
+        if not ok or t0 >= t1 - 1e-9:
+            out.append(e); continue
+        if t0 > 1e-9:
+            out.append(('LINE', ((ax, ay), (ax + dx * t0, ay + dy * t0)), a))
+        if t1 < 1 - 1e-9:
+            out.append(('LINE', ((ax + dx * t1, ay + dy * t1), (bx, by)), a))
+    p.ents = out
+    return p
+
+
+def bd_angle(t, ang, K, R=None):
+    """任意角度折弯的折弯扣除（外形尺寸法），R 默认取 t"""
+    R = t if R is None else R
+    a = math.radians(ang)
+    return 2 * (R + t) * math.tan(a / 2) - a * (R + K * t)
