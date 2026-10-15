@@ -20,6 +20,36 @@ def setup(PARTS, DXF, lab, plate, circles, todo):
         return f
 
     # ------------------------------------------------ 护栏挡板：2mm，端部 15°(或10°) 小折边
+    def dedupe_tab(p, xb, side, dmin=0.15, dmax=1.2, tol=0.03):
+        """折边朝向视图时，图纸会同时画出折边的正、反两面轮廓（相距 t·tanα），
+        展开只保留最外侧一圈：删掉向外平移 d 后能与另一图元重合的内侧图元"""
+        sgn = 1 if side == 'right' else -1
+        def pts(e):
+            k, d, a = e
+            if k == 'LWPOLYLINE':
+                return [(x, y) for x, y, *_ in d[0]]
+            if k == 'LINE':
+                return list(d)
+            if k == 'ARC':
+                return [d[0]]
+            return None
+        def beyond(e):
+            ps = pts(e)
+            return ps and all((x - xb) * sgn > dmin for x, y in ps)
+        cand = [e for e in p.ents if beyond(e)]
+        drop = set()
+        for i, e in enumerate(cand):
+            pe = pts(e)
+            for f in cand:
+                if f is e or f[0] != e[0] or len(pts(f)) != len(pe):
+                    continue
+                pf = pts(f)
+                d = (pf[0][0] - pe[0][0]) * sgn
+                if dmin < d < dmax and all(abs((fx - ex) * sgn - d) < tol and abs(fy - ey) < tol
+                                           for (ex, ey), (fx, fy) in zip(pe, pf)):
+                    drop.add(id(e)); break
+        p.ents = [e for e in p.ents if id(e) not in drop]
+
     def guard(fname, region, L, side='left', ang=15, t=2):
         def f(q):
             p = extract_unbroken(DXF(fname), region)
@@ -30,6 +60,7 @@ def setup(PARTS, DXF, lab, plate, circles, todo):
             else:
                 xb = b[0] + L
             p = stretch_tab(p, xb, ang, side)
+            dedupe_tab(p, xb, side)
             b = p.bbox()
             # 小角度折弯只画红色中心线（同 NO.441 4020142B）；折边范围取折弯线处的轮廓高度
             ys = []
