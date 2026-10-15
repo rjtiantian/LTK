@@ -97,6 +97,30 @@ def setup(PARTS, DXF, lab, plate, circles, todo):
            '0185112A': '0185111A', '0185114A': '0185113A', '0185116A': '0185115A', '0185204A': '0185203A',
            '0185302A': '0185301A', '0185304A': '0185303A', '0185402A': '0185401A', '0185404A': '0185403A',
            '0185502A': '0185501A', '0185602A': '0185601A'}
+    # 护栏挡板-垂直10°：主视图为真实展开外形（中段 10° 圆环），仅左上角 15° 小折边被投影缩短；
+    # 左段直边倾斜 rot 度，先转正再按护栏挡板同样方法拉伸折边、去重，最后转回图纸方向
+    def guard10(fname, region, rot, ang=15, t=2, tab=20):
+        def f(q):
+            p = extract(DXF(fname), region)
+            drop_concentric_outer(p)
+            p = p.rotated(-rot)
+            b = p.bbox()
+            xb = b[0] + tab * math.cos(math.radians(ang))
+            p = stretch_tab(p, xb, ang, 'left')
+            dedupe_tab(p, xb, 'left')
+            ys = []
+            for k, data, a in p.ents:
+                pts = data[0] if k == 'LWPOLYLINE' else (data if k == 'LINE' else [])
+                for pt in pts:
+                    if pt[0] < xb - 0.5:
+                        ys.append(pt[1])
+            p.poly([(xb, min(ys)), (xb, max(ys))], False, '折弯线', linetype='CENTER', color=1, ltscale=0.5)
+            return [(lab(t, q), p.rotated(rot))]
+        return f
+    PARTS['0185105A'] = guard10('0185105A.idw.dxf', (155, 230, 425, 345), 5)
+    PARTS['0185107A'] = guard10('0185107A.idw.dxf', (150, 225, 420, 345), -5)
+    PARTS['0185201A'] = guard10('0185201A.idw.dxf', (150, 225, 420, 345), -5)
+    MIR.update({'0185106A': '0185105A', '0185108A': '0185107A', '0185202A': '0185201A'})
     for m, s in MIR.items():
         PARTS[m] = mirror_of(s)
     return part, mirror_of
@@ -407,18 +431,108 @@ def setup2(PARTS, DXF, lab, plate, circles, todo, part, mirror_of):
         a01 = fit_holes(plate('0180909A00.idw_图纸_2.dxf', (105.0, 86.5, 170.0, 151.5)), 51)   # Φ51 +0.03 -> 51.1
         return [(lab(2480, q), pipe), (lab(90, 4 * q), pipe), (lab(3, 4 * q), a01)]
 
+    # 卷圆护栏挡板：宽100，2mm；15° 小折边20(只占远离孔边的 45 宽) + 直段190 + 90° 卷圆 + 直段200(端部缺口 88x39)
+    # 卷圆按中性层(内外圆半径平均)计算弧长；孔为 9 宽、中心距 5 的腰孔，距孔边 22.5
+    def roll_guard(r_mid, flip=False, t=2):
+        def f(q):
+            arc = math.pi / 2 * r_mid
+            x1 = 20 + 190; x2 = x1 + arc; L = x2 + 200
+            xn = x2 + 112
+            p = Piece()
+            p.outline([(0, 0, 5), (L, 0, 5), (L, 61, 5), (xn, 61, 5), (xn, 100, 5), (20, 100, 5),
+                       (20, 46), (21, 46), (21, 45), (0, 45, 5)])
+            for x in (20 + 30, 20 + 70, 20 + 160, x1 + arc / 2, x2 + 30, x2 + 70):
+                p.slot(x, 75, x, 80, 9)
+            p.poly([(20, 0), (20, 45)], False, '折弯线', linetype='CENTER', color=1, ltscale=0.5)
+            if flip:
+                p = p._map(lambda x, y: (x, 100 - y), mirror=True)
+            return [(lab(t, q), p)]
+        return f
+    PARTS['0185305A'] = roll_guard((552.5 + 554.5) / 2)          # Φ1105(内)
+    PARTS['0185306A'] = roll_guard((445.5 + 447.5) / 2, True)    # Φ895(外)，反向件
+
+    # 侧板01（带卷边的 C 形槽）：卷边20 + 上翼边60 + 腹板144.5 + 下翼边20（外形），2.5mm，BD 4，展开宽 232.5；
+    # 腹板一端有 15 长、折 20° 的小折边（只占腹板 5~124.5 段，只画红线）。
+    # 孔位按“距折弯外形交点 s”换算到展开：y = 红线 ± (s − BD/2)
+    def side01(L, tab_right, lip=(), flange=(), web_bot=(), web_top=(), slots=(), cut=None, t=2.5):
+        w = bd(t)
+        r1, r2, r3 = 20 - w / 2, 80 - 3 * w / 2, 224.5 - 5 * w / 2
+        W = 244.5 - 3 * w
+        Y = {'lip': lambda s: r1 - (s - w / 2), 'fl': lambda s: r2 - (s - w / 2),
+             'wt': lambda s: r2 + (s - w / 2), 'wb': lambda s: r3 - (s - w / 2)}
+        def f(q):
+            ya, yb = Y['wt'](20 - 15), Y['wb'](5)     # 小折边范围：腹板距上外形 5 处至距下外形 5 处
+            ya = Y['wb'](124.5)
+            p = Piece()
+            p.outline([(0, 0, 5), (L, 0, 5), (L, ya - 1), (L - 1, ya - 1), (L - 1, ya), (L + 15, ya, 5),
+                       (L + 15, yb, 5), (L - 1, yb), (L - 1, yb + 1), (L, yb + 1), (L, W, 5), (0, W, 5)])
+            xs = [(0, L)]
+            if cut:
+                a, b = cut
+                p.rect(a, Y['fl'](30), b, Y['wt'](20), 5)
+                xs = [(0, a), (b, L)]
+            for r in (r1, r2, r3):
+                for x0, x1 in (xs if r == r2 else [(0, L)]):
+                    p.bend(x0, r, x1, r, w)
+            p.bend(L, ya, L, yb, 0, red_only=True)
+            for face, s, d, xl in list(lip) + list(flange) + list(web_bot) + list(web_top):
+                for x in xl:
+                    if isinstance(d, str):
+                        p.tap(x, Y[face](s), d)
+                    else:
+                        p.circle(x, Y[face](s), d)
+            for face, s, x0, x1, sw in slots:
+                p.slot(x0, Y[face](s), x1, Y[face](s), sw)
+            if not tab_right:
+                p = p._map(lambda x, y: (L - x, y), mirror=True)
+            return [(lab(t, q), p)]
+        return f
+
+    CSK6 = (8, 250, 750, 1250, 1750)
+    PARTS['0185720A'] = side01(2000, True,
+                               lip=[('lip', 12, 8.6, (120, 165, 210, 1790, 1835, 1880)),
+                                    ('lip', 12, 'M5', (570, 600, 1370, 1400))],
+                               flange=[('fl', s, 5.5, CSK6 + (1992,)) for s in (20, 40)] +
+                                      [('fl', 30, 9, (340, 400, 1640, 1700))],
+                               web_bot=[('wb', s, 5.5, CSK6 + (1992,)) for s in (20, 128.5)],
+                               web_top=[('wt', 16, 6.6, (1062.75, 1100.25, 1137.75))],
+                               slots=[('fl', 30, 975, 1005, 9), ('fl', 30, 1035, 1065, 9)])
+    PARTS['0185722A'] = side01(768, True,
+                               lip=[('lip', 12, 'M5', (200, 230)), ('lip', 12, 9, (558, 603, 648))],
+                               flange=[('fl', s, 5.5, (8, 263, 518, 760)) for s in (20, 40)] +
+                                      [('fl', 37.5, 5.5, (373, 433, 493))],
+                               web_bot=[('wb', s, 5.5, (8, 518, 760)) for s in (20, 128.5)],
+                               cut=(358, 508))
+    PARTS['0185750A'] = side01(2236, False,
+                               lip=[('lip', 12, 8.6, (120, 165, 210, 1826, 1871, 1916)),
+                                    ('lip', 12, 'M5', (630, 660, 1430, 1460, 2118, 2148))],
+                               flange=[('fl', s, 5.5, CSK6 + (2228,)) for s in (20, 40)] +
+                                      [('fl', 37.5, 5.5, (275, 335, 395))],
+                               web_bot=[('wb', s, 5.5, CSK6 + (2228,)) for s in (20, 128.5)],
+                               web_top=[('wt', 16, 6.6, (862.25, 899.75, 937.25))],
+                               cut=(260, 410))
+    PARTS['0185721A'] = mirror_of('0185720A')
+    PARTS['0185723A'] = mirror_of('0185722A')
+    PARTS['0185751A'] = mirror_of('0185750A')
+
+    @part('0180621A')
+    def _(q):
+        # 护栏：C 形 30+110+30（外形），2mm，BD 3，展开宽 164；腹板距左端 150 处折 5°（只画红线），
+        # 两翼边在该处开 5° V 形口（底部距腹板外形 3.98），左段翼边外缘随折弯倾斜 5°（端部宽 12.39+R5）；
+        # 两翼边各有 2-Φ6.5（距外缘 7.5）和 270x20 缺口（R5）。数据由图纸俯视图按 5° 旋转还原。
+        t = 2; w = bd(t)
+        L = 879.82
+        A = lambda s: 30 - s            # 翼边A：s 为距腹板外形
+        B = lambda s: 134 + s           # 翼边B
+        def side(F):
+            return [(-2.30, F(29.89)), (-1.17, F(3.98)), (1.18, F(3.98)), (2.31, F(30)),
+                    (400, F(30), 5), (400, F(10), 5), (670, F(10), 5), (670, F(30), 5), (L, F(30), 5)]
+        p = Piece()
+        p.outline([(-150, A(16.97), 5)] + side(A) + side(B)[::-1] + [(-150, B(16.97), 5)])
+        for x in (50, 700):
+            p.circle(x, A(22.5), 6.5).circle(x, B(22.5), 6.5)
+        p.bend(-150, A(1.5), L, A(1.5), w).bend(-150, B(1.5), L, B(1.5), w)
+        p.bend(0, A(3.98), 0, B(3.98), 0, red_only=True)
+        return [(lab(t, q), p)]
+
     # ------------------------------------------------ 复杂件：占位
-    for c, t, note in [('0180621A', 2, '0180621A 待人工展开（C 形长件，端部 5° 折弯）'),
-                       ('0185105A', 2, '0185105A 待人工展开（垂直 10° 弯折护栏挡板）'),
-                       ('0185106A', 2, '0185106A 为0185105A镜像件，待人工展开'),
-                       ('0185107A', 2, '0185107A 待人工展开（垂直 10° 弯折护栏挡板）'),
-                       ('0185108A', 2, '0185108A 为0185107A镜像件，待人工展开'),
-                       ('0185201A', 2, '0185201A 待人工展开（垂直 10° 弯折护栏挡板）'),
-                       ('0185202A', 2, '0185202A 为0185201A镜像件，待人工展开'),
-                       ('0185305A', 2, '0185305A 待人工展开（Φ1105 卷圆护栏挡板）'),
-                       ('0185306A', 2, '0185306A 待人工展开（Φ895 卷圆护栏挡板）'),
-                       ('0185720A', 2.5, '0185720A 待人工展开（长槽型侧板）'),
-                       ('0185721A', 2.5, '0185721A 为0185720A镜像件，待人工展开'),
-                       ('0185722A', 2.5, '0185722A 待人工展开（槽型侧板）'),
-                       ('0185723A', 2.5, '0185723A 为0185722A镜像件，待人工展开')]:
-        PARTS[c] = todo(t, note)
