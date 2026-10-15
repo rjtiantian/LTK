@@ -14,12 +14,27 @@ LAB_Y = 26524.4        # 第一个“材料-厚度”标签
 PIECE_DY = 86.3        # 标签到零件底边
 STACK_GAP = 150.0      # 零件顶到上一个标签
 X0 = -1148.0
-COL_GAP = 520.0
+COL_GAP = 750.0        # 上一列（零件几何 + 绿色标签 + 黄色表头）包围盒右端到下一列包围盒左端的间距
 TXT_H = 30.0
 
 
 def text_w(s, h=TXT_H):
     return sum(h * (1.0 if ord(ch) > 0x2E80 else 0.62) for ch in s)
+
+
+def _xrange(ents):
+    """列内图元的 X 向包围盒：ezdxf 包围盒与文字字宽估算（含中文全角）取并集，保证不小估"""
+    from ezdxf import bbox as ezbbox
+    xs = []
+    if ents:
+        b = ezbbox.extents(ents)
+        if b.has_data:
+            xs += [b.extmin.x, b.extmax.x]
+    for e in ents:
+        if e.dxftype() == 'TEXT':
+            x = e.dxf.insert.x
+            xs += [x, x + text_w(e.dxf.text, e.dxf.height)]
+    return min(xs), max(xs)
 
 
 def _text(msp, s, x, y, color):
@@ -37,17 +52,18 @@ def build(xlsx, PARTS, out_path):
 
     ws = openpyxl.load_workbook(xlsx).active
     rows = [r for r in ws.iter_rows(min_row=2, values_only=True) if r[3]]
-    x = X0
+    cursor = X0
     report = []
     for r in rows:
         date, no, order, code, name, qty = r[0], r[1], r[2], str(r[3]).strip(), r[4], int(r[5])
         dstr = date.strftime('%Y-%m-%d') if isinstance(date, datetime.datetime) else str(date)
         surf = (r[7] or '').strip() if r[7] else ''
         hdr = '·'.join([dstr, str(no), order, code, name, '%d件' % qty] + ([surf] if surf else []))
+        before = set(e.dxf.handle for e in msp)
+        x = 0.0                                   # 先在 x=0 处画出本列，再按包围盒整体平移
         hw = text_w(hdr)
         _text(msp, hdr, x, HDR_Y, 2)
         cx = x + hw / 2
-        colw = hw
         f = PARTS.get(code)
         if f is None:
             note = '无图纸，待人工补充'
@@ -62,7 +78,6 @@ def build(xlsx, PARTS, out_path):
                     _text(msp, l, cx - text_w(l) / 2, y, 3)
                     y += 60
                 _text(msp, note, cx - text_w(note) / 2, y + 30, 1)
-                colw = max(colw, text_w(note))
                 report.append((code, '占位-' + note))
             else:
                 y = LAB_Y
@@ -72,9 +87,13 @@ def build(xlsx, PARTS, out_path):
                     w, h = b[2] - b[0], b[3] - b[1]
                     _text(msp, l, cx - text_w(l) / 2, y, 3)
                     p.draw(msp, cx - w / 2, y + PIECE_DY)
-                    colw = max(colw, w, text_w(l))
                     y = y + PIECE_DY + h + STACK_GAP
                 report.append((code, '已完成'))
-        x += max(colw, hw) + COL_GAP
+        col = [e for e in msp if e.dxf.handle not in before]
+        x0, x1 = _xrange(col)
+        dx = cursor - x0
+        for e in col:
+            e.translate(dx, 0, 0)
+        cursor = x1 + dx + COL_GAP
     tpl.saveas(out_path)
     return report

@@ -428,8 +428,9 @@ def build(out_path):
 
 
 if __name__ == '__main__':
+    import layout
     out = os.path.join(D474, 'NO.474.dxf')
-    rep = build(out)
+    rep = layout.build(os.path.join(D474, 'NO.474.xlsx'), PARTS, out)     # 统一排版：列包围盒 + 750
     for c, s in rep:
         print(c, s)
     print('saved', out)
