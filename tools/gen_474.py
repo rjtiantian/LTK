@@ -11,7 +11,7 @@ import ezdxf, openpyxl
 from ezdxf import bbox as ezbbox
 
 sys.path.insert(0, os.path.dirname(__file__))
-from sheetlib import Piece, extract, drop_concentric_outer, bd, TAP, CUT, BEND, relief_params
+from sheetlib import Piece, extract, drop_concentric_outer, bd, TAP, CUT, BEND, relief_params, fit_holes
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D474 = os.path.join(ROOT, '474')
@@ -75,12 +75,12 @@ def _(q):
 
 @part('0186020A')
 def _(q):
-    return [(lab(4, q), plate('0186020A.idw.dxf', (74.19, 201.66, 269.12, 325.24)))]
+    return [(lab(4, q), fit_holes(plate('0186020A.idw.dxf', (74.19, 201.66, 269.12, 325.24)), 24))]
 
 
 @part('0186021A')   # 0186020A 的镜像件（见 0186020A 图纸镜像表）
 def _(q):
-    return [(lab(4, q), plate('0186020A.idw.dxf', (74.19, 201.66, 269.12, 325.24)).mirrored())]
+    return [(lab(4, q), fit_holes(plate('0186020A.idw.dxf', (74.19, 201.66, 269.12, 325.24)), 24).mirrored())]
 
 
 @part('1431212A')
@@ -95,24 +95,26 @@ def _(q):
 
 @part('1431220A')
 def _(q):
-    return [(lab(4, q), plate('1431220A.idw.dxf', (74.19, 201.66, 269.12, 325.24)))]
+    return [(lab(4, q), fit_holes(plate('1431220A.idw.dxf', (74.19, 201.66, 269.12, 325.24)), 24))]
 
 
 @part('1431221A')   # 1431220A 的镜像件
 def _(q):
-    return [(lab(4, q), plate('1431220A.idw.dxf', (74.19, 201.66, 269.12, 325.24)).mirrored())]
+    return [(lab(4, q), fit_holes(plate('1431220A.idw.dxf', (74.19, 201.66, 269.12, 325.24)), 24).mirrored())]
 
 
 @part('1431225A')
 def _(q):
-    return [(lab(3, q), plate('1431225A.idw.dxf', (82.04, 85.31, 173.04, 155.52)))]
+    # 图纸视图比例 2:1（尺寸标注值 = 图形长度 x 0.5），按实际尺寸缩回
+    return [(lab(3, q), plate('1431225A.idw.dxf', (82.04, 85.31, 173.04, 155.52)).scaled(0.5))]
 
 
 @part('1431226A')
 def _(q):
     # 沉头孔与外形相交，手工建模：34x8 R2，2-Φ4.5(沉头) + 1-Φ4
     p = Piece().rect(0, 0, 34, 8, 2).circle(5.5, 4, 4.5).circle(16.5, 4, 4.5).circle(30, 4, 4)
-    return [(lab(3.5, q), p)]
+    # 图纸厚 3.5，SUS304 无 3.5 板料；历史人工（NO.360 同号零件）按 4mm 下料
+    return [(lab(4, q), p)]
 
 
 # ---------------------------------------------------------------- 折弯件（按外形尺寸 - BD 手工展开）
@@ -315,7 +317,32 @@ PARTS['0185738A'] = todo(3, '0185738A 待人工展开（卷边铰接件）')
 PARTS['0185750A'] = todo(2.5, '0185750A 待人工展开（长槽型件，展开宽约20+144.5+60+20-3x4=232.5）')
 PARTS['0185751A'] = todo(2.5, '0185751A 为0185750A镜像件，待人工展开')
 PARTS['0186033A'] = todo(1.5, '0186033A 待人工展开（围板+顶板）')
-PARTS['1530201A'] = todo(4, '1530201A 待人工展开（135°多折弯支座）')
+
+
+@part('1530201A')
+def _(q):
+    # 支座：直接沿用历史人工展开图（NO.425 / NO.427 同号零件，两次完全一致），
+    # 两处 135° 折弯只画红线，两端 90° 耳片折弯红线 + 蓝线(BD 6.8)
+    p = Piece()
+    p.arc(17.5, 17.5, 17.5, 180, 0).arc(246.7, 17.5, 17.5, 180, 0)
+    p.arc(5, 65.36, 5, 147.09, 180).arc(40, 51.72, 5, 147.09, 180)
+    p.arc(87.72, 193.2, 5, 90, 147.09).arc(92.72, 133.2, 5, 90, 147.09)
+    p.arc(171.48, 133.2, 5, 32.91, 90).arc(176.48, 193.2, 5, 32.91, 90)
+    p.arc(224.2, 51.72, 5, 0, 32.91).arc(259.2, 65.36, 5, 0, 32.91)
+    for a, b in [((0, 65.36), (0, 17.5)), ((83.52, 195.92), (0.8, 68.08)), ((35, 17.5), (35, 51.72)),
+                 ((35.8, 54.44), (88.52, 135.92)), ((87.72, 198.2), (176.48, 198.2)),
+                 ((171.48, 138.2), (92.72, 138.2)), ((228.4, 54.44), (175.68, 135.92)),
+                 ((180.68, 195.92), (263.4, 68.08)), ((229.2, 17.5), (229.2, 51.72)),
+                 ((264.2, 65.36), (264.2, 17.5))]:
+        p.line(*a, *b)
+    p.circle(17.5, 17.5, 13).circle(246.7, 17.5, 13)
+    for x in (112.1, 152.1):
+        for y in (148.2, 188.2):
+            p.circle(x, y, 9)
+    p.bend(93.55, 138.2, 93.55, 198.2, 0, red_only=True).bend(170.65, 138.2, 170.65, 198.2, 0, red_only=True)
+    p.bend(0, 36.6, 35, 36.6, bd(4)).bend(229.2, 36.6, 264.2, 36.6, bd(4))
+    return [(lab(4, q), p)]
+
 
 
 import parts_474b

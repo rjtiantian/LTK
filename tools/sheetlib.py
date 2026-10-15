@@ -91,12 +91,15 @@ class Piece:
         self.ents.append(('ARC', ((cx, cy), r, a0, a1), dict(layer=layer)))
         return self
 
-    def bend(self, x0, y0, x1, y1, w):
-        """折弯线：中心线(红) + 两侧各 w/2 的边界线(蓝)，w 为 BD（同 NO.441 人工图）"""
+    def bend(self, x0, y0, x1, y1, w, red_only=False):
+        """折弯线：中心线(红) + 两侧各 w/2 的边界线(蓝)，w 为 BD（同 NO.441 人工图）。
+        非 90° 折弯按历史人工习惯只画红色中心线（red_only=True）。"""
         dx, dy = x1 - x0, y1 - y0
         L = math.hypot(dx, dy)
         nx, ny = -dy / L * w / 2, dx / L * w / 2
         self.poly([(x0, y0), (x1, y1)], False, BEND, linetype='CENTER', color=1, ltscale=0.5)
+        if red_only:
+            return self
         self.poly([(x0 + nx, y0 + ny), (x1 + nx, y1 + ny)], False, BEND, linetype='CENTER', color=5)
         self.poly([(x0 - nx, y0 - ny), (x1 - nx, y1 - ny)], False, BEND, linetype='CENTER', color=5)
         return self
@@ -106,7 +109,7 @@ class Piece:
         return self
 
     # ---- 变换 ----
-    def _map(self, f, mirror=False):
+    def _map(self, f, mirror=False, k=1.0):
         p = Piece(self.name)
         for kind, data, attr in self.ents:
             if kind == 'LWPOLYLINE':
@@ -115,7 +118,7 @@ class Piece:
                 p.ents.append((kind, (npts, closed), attr))
             elif kind == 'CIRCLE':
                 (cx, cy), r = data
-                p.ents.append((kind, (f(cx, cy), r), attr))
+                p.ents.append((kind, (f(cx, cy), r * k), attr))
             elif kind == 'LINE':
                 a, b = data
                 p.ents.append((kind, (f(*a), f(*b)), attr))
@@ -130,7 +133,7 @@ class Piece:
                 n0, n1 = ang(a0), ang(a1)
                 if mirror:
                     n0, n1 = n1, n0
-                p.ents.append((kind, (c2, r, n0, n1), attr))
+                p.ents.append((kind, (c2, r * k, n0, n1), attr))
             elif kind == 'TEXT':
                 (x, y), s, h = data
                 p.ents.append((kind, (f(x, y), s, h), attr))
@@ -142,6 +145,10 @@ class Piece:
     def rotated(self, deg):
         c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
         return self._map(lambda x, y: (x * c - y * s, x * s + y * c))
+
+    def scaled(self, k):
+        """按比例缩放（图纸视图非 1:1 时还原实际尺寸）"""
+        return self._map(lambda x, y: (x * k, y * k), k=k)
 
     def mirrored(self):
         """左右镜像 (x -> -x)"""
@@ -176,6 +183,17 @@ class Piece:
             elif kind == 'TEXT':
                 (x, y), s, h = data
                 msp.add_text(s, height=h, dxfattribs=dict(attr, insert=(x + ox, y + oy)))
+
+
+def fit_holes(p, *ds):
+    """带正公差的配合孔(如 Φ24 +0.021/0、Φ46 H7)：按历史人工习惯切割孔径 +0.1（NO.360 1431220A Φ24 -> Φ24.1）"""
+    for i, (kind, data, attr) in enumerate(p.ents):
+        if kind == 'CIRCLE':
+            c, r = data
+            for d in ds:
+                if abs(2 * r - d) < 0.01:
+                    p.ents[i] = (kind, (c, (d + 0.1) / 2), attr)
+    return p
 
 
 def extract(path, region, layers=(CUT,), drop=None):

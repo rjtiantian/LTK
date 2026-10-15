@@ -2,7 +2,7 @@
 """NO.474 第二批图纸（NO.474 图纸.zip）的展开件定义"""
 import math
 from sheetlib import (Piece, extract, extract_unbroken, stretch_tab, drop_concentric_outer, bd, TAP,
-                      relief_params, clip_out_box, bd_angle)
+                      relief_params, clip_out_box, bd_angle, fit_holes)
 
 
 def setup(PARTS, DXF, lab, plate, circles, todo):
@@ -178,7 +178,7 @@ def setup2(PARTS, DXF, lab, plate, circles, todo, part, mirror_of):
         w45 = 2 * 8 * math.tan(math.radians(22.5)) - ba
         p = Piece().outline([(0, 0, 2), (L, 0, 2), (L, 40, 2), (0, 40, 2)])
         for x in (38.98, 121.79, 209.75, 292.57):
-            p.bend(x, 0, x, 40, w45)
+            p.bend(x, 0, x, 40, w45, red_only=True)     # 非 90° 折弯只画红线（历史人工习惯）
         for x0 in (8.5, L - 22):
             p.slot(x0, 7.5, x0 + 13.5, 7.5, 6.5).slot(x0, 32.5, x0 + 13.5, 32.5, 6.5)
         p.circle(L / 2, 20, 9)
@@ -238,7 +238,7 @@ def setup2(PARTS, DXF, lab, plate, circles, todo, part, mirror_of):
             return 2 * 6 * math.tan(a / 2) - a * rn
         p = Piece().rect(0, 0, L, 78, 5)
         for x, a in ((49.505, 32.7), (91.004, 32.7), (163.877, 90), (198.851, 90)):
-            p.bend(x, 0, x, 78, bdw(a))
+            p.bend(x, 0, x, 78, bdw(a), red_only=(a != 90))   # 非 90° 只画红线
         p.circle(24, 59, 9).circle(L - 15, 59, 9).circle(L - 15, 19, 9)
         # R40 弧形腰孔（宽9，45°）
         cx, cy = 24, 59
@@ -330,7 +330,9 @@ def setup2(PARTS, DXF, lab, plate, circles, todo, part, mirror_of):
     P('0183113A', '0183113A.idw.dxf', (48.4, 115.0, 214.4, 131.0), 3)
     P('0183114A', '0183114A.idw.dxf', (24.9, 51.9, 110.9, 67.9), 3)
     P('0183118A', '0183118A.idw.dxf', (36.4, 38.6, 96.4, 83.6), 3)
-    P('0183139A', '0183139A.idw.dxf', (78.2, 83.4, 164.2, 169.4), 3, keep=86)
+    @part('0183139A')
+    def _(q):
+        return [(lab(3, q), fit_holes(plate('0183139A.idw.dxf', (78.2, 83.4, 164.2, 169.4), keep_outline_d=86), 46))]  # Φ46 H7 -> 46.1
     P('0183142A', '0183142A.idw.dxf', (15.3, 17.4, 29.3, 31.4), 4, keep=14)
 
     @part('0120203A')
@@ -402,7 +404,7 @@ def setup2(PARTS, DXF, lab, plate, circles, todo, part, mirror_of):
     def _(q):
         # 主真空管：Φ51x2 管 2480 ×1、真空连接管 Φ51x2-90 ×4、真空连接1(3mm 板) ×4；封盖、真空接头为机加/冲压件不下料
         pipe = Piece().circle(25.5, 25.5, 51).circle(25.5, 25.5, 47)
-        a01 = plate('0180909A00.idw_图纸_2.dxf', (105.0, 86.5, 170.0, 151.5))
+        a01 = fit_holes(plate('0180909A00.idw_图纸_2.dxf', (105.0, 86.5, 170.0, 151.5)), 51)   # Φ51 +0.03 -> 51.1
         return [(lab(2480, q), pipe), (lab(90, 4 * q), pipe), (lab(3, 4 * q), a01)]
 
     # ------------------------------------------------ 复杂件：占位
