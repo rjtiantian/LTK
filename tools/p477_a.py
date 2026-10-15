@@ -40,13 +40,11 @@ def register(C):
     def p_201A03():             # 电气接头挡板 1.5mm：底板(425x250 五边形) + 前翻边 25 + 端板 125(六边形)
         t = 1.5; w = W(t)       # BD 2.5
         rp, rg, rs = C.relief_params(t, w)
-        xw = 425 - w / 2 + (0 - w / 2)          # 端板高度 h -> x = 422.5 + h
         hx = lambda h: 425 - w + h
         yf = w - 25                              # 前翻边边缘 y = -22.5
         a = math.tan(math.radians(30))
         xs = (250 - 132.1) / a                   # 斜边到顶边交点 x=204.21
         top_l = 250 - 23                         # 端板顶边（y=227 ~ 136.84）
-        top_r = 250 - (125 - 46) / a - 0         # 端板顶平段终点 y（距前面 136.84）
         top_r = (125 - 46) / a                   # = 136.83
         p = C.Piece()
         p.outline([(hx(85.16), 250, 10), (hx(125), top_l, 10), (hx(125), top_r, 10), (hx(46), 0, 10),
@@ -116,20 +114,14 @@ def register(C):
         r2 = w - 100 + w / 2    # 第二道折弯红线距外形线 -92.5
         c = 2.12                # 翻边 45° 斜接口偏离对角线量（图纸 3mm 间隙）
         mx = e - (100 - w) - c  # 立边端斜接起点（距端线）87.88
-        p = C.Piece()
-        p.outline([(-e, Y - e + 100 - w + c + (e - (100 - w)) - e + (100 - w)),  # placeholder, replaced below
-                   ])
-        p.ents = []
         ym = Y - (e - mx)       # 侧翻边斜接终点 y = 1427.88
+        yt = Y + 90 + rs - c    # 上翻边斜接线与上立边端线(x=rs)交点 y = 1545.98
+        xm = e - 90 + c         # 上翻边斜接线在翻边边缘处 x = 27.12
         pts = [(-e, ym), (-e, 0), (-rg, 0), (rp, rp), (rs, -rg), (rs, -eb),
                (X - rs, -eb), (X - rs, -rg), (X - rp, rp), (X + rg, 0), (X + e, 0), (X + e, ym),
-               (X + mx, Y), (X + rg, Y), (X - rp, Y - rp), (X - rs, Y + rg),
-               (X - rs, Y + (100 - w) - w + w + rs - c + 0 * 0)]
-        # 上翻边斜接：x = (y - (Y+90)) + c  (左)，在 x=rs 处 y = Y + 90 + rs - c
-        yt = Y + (100 - w) - w / 2 - w / 2 + rs - c + w      # = Y+90+0.98
-        yt = Y + 90 + rs - c
-        pts = pts[:-1] + [(X - rs, yt), (X - (e - 90 + c), Y + e), (e - 90 + c, Y + e), (rs, yt),
-                          (rs, Y + rg), (rp, Y - rp), (-rg, Y), (-mx, Y)]
+               (X + mx, Y), (X + rg, Y), (X - rp, Y - rp), (X - rs, Y + rg), (X - rs, yt),
+               (X - xm, Y + e), (xm, Y + e), (rs, yt), (rs, Y + rg), (rp, Y - rp), (-rg, Y), (-mx, Y)]
+        p = C.Piece()
         p.outline(pts)
         # 折弯线（90°：红+蓝，BD 5）
         p.bend(w / 2, 0, w / 2, Y, w).bend(X - w / 2, 0, X - w / 2, Y, w)
@@ -197,48 +189,27 @@ def register(C):
         H = 80                                   # 端立板高
         c45 = 0.7                                # 斜接缝偏移
 
-        def side(sg):
-            """下侧(sg=1)外形点；上侧用 y -> Bw - y 镜像"""
-            Y = (lambda y: y) if sg > 0 else (lambda y: Bw - y)
-            ap1 = ((w + w + c45 - c45) / 2 + 0.0, 0)
-            # 端立板三角折片斜接线 y = x + 0.7；翻边斜接 x + y = 5.7；交点即 V 槽尖点
-            xa = (2 * w - c45 - c45) / 2 + 0.0
-            xa = (5.7 - 0.7) / 2; ya = xa + 0.7
-            # 30° 处 V 槽（两侧翻边斜接线交点）
-            k = math.tan(math.radians(15))
-            xp1 = x0 + 0.0                       # 占位
-            return xa, ya
-        xa, ya = side(1)
         k = math.tan(math.radians(15))
-        # 主板翻边端 / 斜板翻边端（h=6 -> y=-1，h=60 -> y=-55），交于 30° 红线
-        xA = r1 - k * (6.27); xB = r1 + k * 6.27
-        P1h6 = (r1 - k * (6.27 - 0), -1)
-        def fe1(y):     # 主板翻边斜接线
-            return r1 - k * (ya1 - y)
+        # 端部：三角折片斜接线 y = x + 0.7、翻边斜接线 x + y = 5.7，交点(2.5, 3.2)为 V 槽尖
+        xa = (5.7 - c45) / 2; ya = xa + c45
+        # 30° 处：主板翻边端与斜板翻边端两斜接线（各偏 15°）交于红线上 y=5.27
         ya1 = 5.27
-        def fe2(y):
-            return r1 + k * (ya1 - y)
-        # 斜板翻边上沿：h=60 至 s=56.07 处 R10 转为图中水平线，到 s=145.0 时 h=8.66
-        s_c = 56.07
-        lo = [(-H + w, fh, 10), (-(60 - w + c45) + 0.0, fh), (xa, ya), (60.7, fh), (fe1(fh), fh), (r1, ya1),
-              (fe2(fh), fh), (x0 + s_c, fh, 10), (xb2, w - 8.66), (xb2, 6), (xe, 6, 10)]
-        lo[1] = (fh - c45, fh)                   # 三角折片斜接线与 y=-55 交点 x=-55.7
+        fe1 = lambda y: r1 - k * (ya1 - y)
+        fe2 = lambda y: r1 + k * (ya1 - y)
+        # 斜板翻边上沿：h=60 至 s=56.07 处 R10 转为图中水平线，到 s=145.0（150°弯起点）时 h=8.66
+        lo = [(-H + w, fh, 10), (fh - c45, fh), (xa, ya), (5.7 - fh, fh), (fe1(fh), fh), (r1, ya1),
+              (fe2(fh), fh), (x0 + 56.07, fh, 10), (xb2, w - 8.66), (xb2, 6), (xe, 6, 10)]
         up = [(x, Bw - y) + tuple(r) for x, y, *r in reversed(lo)]
         p = C.Piece()
         p.outline(lo + up)
-        # 折弯线
-        p.bend(w / 2, ya, w / 2, Bw - ya, w)                                   # 端立板
+        # 折弯线：端立板、三角折片、翻边 90°（红+蓝）；30°、150° 只画红线
+        p.bend(w / 2, ya, w / 2, Bw - ya, w)
         for yy in (w / 2, Bw - w / 2):
-            p.bend(-H + w, yy, (yy if yy < Bw / 2 else Bw - yy) - c45 if False else (w / 2 - c45 if yy < Bw / 2 else w / 2 - c45), yy, w)
-        p.ents = p.ents[:-6]                                                   # 重画三角折片/翻边折弯线
-        xt = w / 2 - c45                                                        # 折片折弯线止于斜接线
-        xf = 5.7 - w / 2                                                        # 翻边折弯线起于斜接线
-        for yy in (w / 2, Bw - w / 2):
-            p.bend(-H + w, yy, xt, yy, w)
-            p.bend(xf, yy, fe1(w / 2), yy, w)
+            p.bend(-H + w, yy, w / 2 - c45, yy, w)
+            p.bend(5.7 - w / 2, yy, fe1(w / 2), yy, w)
             p.bend(fe2(w / 2), yy, xb2, yy, w)
-        p.bend(r1, ya1, r1, Bw - ya1, 0, red_only=True)                         # 30°
-        p.bend(r2, 6, r2, Bw - 6, 0, red_only=True)                             # 150° 回折
+        p.bend(r1, ya1, r1, Bw - ya1, 0, red_only=True)
+        p.bend(r2, 6, r2, Bw - 6, 0, red_only=True)
         # 孔：翻边 5-Φ11、折片 Φ16，上下对称；端立板 2-Φ11；斜板 2 腰孔 7 宽
         for yy, sg in ((0, 1), (Bw, -1)):
             for x in (100, 600, 1100):
