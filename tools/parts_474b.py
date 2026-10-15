@@ -62,29 +62,7 @@ def setup(PARTS, DXF, lab, plate, circles, todo):
                 xb = b[0] + L
             p = stretch_tab(p, xb, ang, side)
             dedupe_tab(p, xb, side)
-            # 折边根部释放槽按“释放槽样式.dxf”（局部翻边，根部 V 形槽）：取代图纸上的 1x1 小方口
-            K = {1: 0.5, 1.5: 0.53, 2: 0.59, 2.5: 0.53, 3: 0.48}.get(t, 0.5)
-            w15 = bd_angle(t, ang, K)
-            rp, rg, rs = relief_params(t, w15)
-            sg = -1 if side == 'left' else 1           # 折边外伸方向
-            ys = []
-            for k, data, a in p.ents:
-                pts = data[0] if k == 'LWPOLYLINE' else (data if k == 'LINE' else [])
-                for pt in pts:
-                    if (pt[0] - xb) * sg > 0.5:
-                        ys.append(pt[1])
-            yf = min(ys)                                # 折边下侧边
-            # 仅当折边下方本体轮廓在折弯线处为竖直边（局部翻边）时才需要释放槽；
-            # 若折边下边与本体边共线（整边翻折，如 0185101A），不开槽
-            need = any(k == 'LINE' and abs(d[0][0] - xb) < 1.2 and abs(d[1][0] - xb) < 1.2
-                       and max(d[0][1], d[1][1]) < yf - 0.5 and abs(d[0][1] - d[1][1]) > 2
-                       for k, d, a in p.ents)
-            if need:
-                cy = yf - rs
-                P1 = (xb, cy - rg); P2 = (xb - sg * rp, cy + rp); P3 = (xb + sg * rg, yf)
-                xa, xc = sorted((xb - sg * (rp + 0.01), xb + sg * (rg + 0.01)))
-                clip_out_box(p, xa, cy - rg - 0.001, xc, yf + 0.001)
-                p.poly([P1, P2, P3], False)
+            # 小角度折边根部保留图纸原有的 1x1 释放口（按要求不改为 V 形槽）
             b = p.bbox()
             # 小角度折弯只画红色中心线（同 NO.441 4020142B）；折边范围取折弯线处的轮廓高度
             ys = []
