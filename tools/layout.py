@@ -6,6 +6,7 @@ build(xlsx, PARTS, out_path)
 """
 import os, datetime
 import ezdxf, openpyxl
+import oldparts
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -54,15 +55,22 @@ def build(xlsx, PARTS, out_path):
     rows = [r for r in ws.iter_rows(min_row=2, values_only=True) if r[3]]
     cursor = X0
     report = []
+    dxf_dir = os.path.join(os.path.dirname(xlsx), 'DXF')
+    old = []
     for r in rows:
         date, no, order, code, name, qty = r[0], r[1], r[2], str(r[3]).strip(), r[4], int(r[5])
         dstr = date.strftime('%Y-%m-%d') if isinstance(date, datetime.datetime) else str(date)
         surf = (r[7] or '').strip() if r[7] else ''
-        hdr = '·'.join([dstr, str(no), order, code, name, '%d件' % qty] + ([surf] if surf else []))
+        tag, red = oldparts.mark(code, dxf_dir)    # 老图：历史做过同号件 / 版本比历史旧 / 清单与图纸版本不一致
+        hdr = '·'.join([dstr, str(no), order, code, name, '%d件' % qty] + ([surf] if surf else []) + ([tag] if tag else []))
+        if tag or red:
+            old.append((code, tag, red))
         before = set(e.dxf.handle for e in msp)
         x = 0.0                                   # 先在 x=0 处画出本列，再按包围盒整体平移
         hw = text_w(hdr)
         _text(msp, hdr, x, HDR_Y, 2)
+        for i, t in enumerate(red):               # 红字提醒写在表头下方
+            _text(msp, t, x, HDR_Y - 50 * (i + 1), 1)
         cx = x + hw / 2
         f = PARTS.get(code)
         if f is None:
@@ -96,4 +104,6 @@ def build(xlsx, PARTS, out_path):
             e.translate(dx, 0, 0)
         cursor = x1 + dx + COL_GAP
     tpl.saveas(out_path)
+    for code, tag, red in old:
+        print('老图标注', code, tag, ' '.join(red))
     return report
