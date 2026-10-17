@@ -83,6 +83,14 @@ class Piece:
         pts = [(x0 - nx, y0 - ny, 0), (x1 - nx, y1 - ny, 1), (x1 + nx, y1 + ny, 0), (x0 + nx, y0 + ny, 1)]
         return self.poly(pts, True, layer)
 
+    def arc_slot(self, cx, cy, r, a0, a1, w, layer=CUT):
+        """弧形腰孔：中心 (cx,cy)、中心线半径 r、从 a0 逆时针到 a1（度）、宽 w"""
+        ro, ri = r + w / 2, r - w / 2
+        b = math.tan(math.radians(a1 - a0) / 4)
+        pt = lambda rr, a: (cx + rr * math.cos(math.radians(a)), cy + rr * math.sin(math.radians(a)))
+        pts = [pt(ro, a0) + (b,), pt(ro, a1) + (1,), pt(ri, a1) + (-b,), pt(ri, a0) + (1,)]
+        return self.poly(pts, True, layer)
+
     def line(self, x0, y0, x1, y1, layer=CUT, **attr):
         self.ents.append(('LINE', ((x0, y0), (x1, y1)), dict(layer=layer, **attr)))
         return self
