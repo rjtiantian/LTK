@@ -3,6 +3,7 @@
 
 用法: python3 tools/gen_order.py 463        -> 463/NO.463.dxf
       python3 tools/gen_order.py 475        -> 475/NO.475.dxf
+      python3 tools/gen_order.py 单件/5406205B -> 单件/5406205B/5406205B_展开图.dxf（单件出图）
       python3 tools/gen_order.py 477-478    -> 477-478/NO.477-NO.478.dxf
 零件定义在 tools/p<订单>_*.py（每个模块提供 register(C)）。
 """
@@ -11,7 +12,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from orderctx import Ctx
 from layout import build, ROOT
 
-ORDERS = {'463': ('NO.463.xlsx', 'NO.463.dxf', 'p463_'),
+ORDERS = {'单件/5406205B': ('5406205B.xlsx', '5406205B_展开图.dxf', 'ps5406205B'),
+          '463': ('NO.463.xlsx', 'NO.463.dxf', 'p463_'),
           '475': ('NO.475.xlsx', 'NO.475.dxf', 'p475_'),
           '477-478': ('NO.477-NO.478.xlsx', 'NO.477-NO.478.dxf', 'p477_')}
 

@@ -62,7 +62,7 @@ def build(xlsx, PARTS, out_path):
         dstr = date.strftime('%Y-%m-%d') if isinstance(date, datetime.datetime) else str(date)
         surf = (r[7] or '').strip() if r[7] else ''
         tag, red = oldparts.mark(code, dxf_dir)    # 老图：历史做过同号件 / 版本比历史旧 / 清单与图纸版本不一致
-        hdr = '·'.join([dstr, str(no), order, code, name, '%d件' % qty] + ([surf] if surf else []) + ([tag] if tag else []))
+        hdr = '·'.join(str(v) for v in [dstr, no, order, code, name, '%d件' % qty, surf, tag] if v)   # 单件出图无序号/订单号
         if tag or red:
             old.append((code, tag, red))
         before = set(e.dxf.handle for e in msp)
