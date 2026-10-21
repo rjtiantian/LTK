@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """矩形管 STEP 生成（交管材激光）：照客户样例 支架1.STEP 的做法——
-空心矩形管，外角 R = 1.5t、内角 R = 0.5t（40×40×2 → R3 / R1），每种管单独一个实体/文件；
+空心矩形管，外角 R 按材料：Q235B 1.5t、SUS304 1.2t，内角 R = 外角 − t（用户规定；SUS304 40×40×2 → R2.4 / R0.4），
+每种管单独一个实体/文件；
 孔、腰孔贯穿；横撑与立柱插接定位：横撑一侧管壁伸出 3.5 作定位舌（宽 13，两边各 0.25 间隙），
 立柱对应管角开 13.5 × 3.75 缺口（同样例 支架1：舌 13.02 × 3.5，缺口 13.52 × 3.75 / 3.45）。
 
@@ -35,10 +36,20 @@ def _rrect_wire(x0, y0, x1, y1, r, z=0.0):
     return mk.Wire()
 
 
-def tube(a, b, t, L, ro=None, ri=None):
-    """矩形管实体：截面 a × b、壁厚 t、长 L（沿 z）"""
-    ro = 1.5 * t if ro is None else ro
-    ri = 0.5 * t if ri is None else ri
+TUBE_R = {'Q235B': 1.5, 'SUS304': 1.2}      # 管材外圆角 = 壁厚 × 系数（用户规定）
+
+
+def corner_r(t, mat='SUS304'):
+    """矩形管外角、内角半径：外 R = t × 系数，内 R = 外 R − t"""
+    ro = TUBE_R[mat.upper()] * t
+    return ro, ro - t
+
+
+def tube(a, b, t, L, ro=None, ri=None, mat='SUS304'):
+    """矩形管实体：截面 a × b、壁厚 t、长 L（沿 z）；圆角默认按材料规则"""
+    r0, r1 = corner_r(t, mat)
+    ro = r0 if ro is None else ro
+    ri = r1 if ri is None else ri
     fm = BRepBuilderAPI_MakeFace(_rrect_wire(0, 0, a, b, ro))
     inner = _rrect_wire(t, t, a - t, b - t, ri)
     inner.Reverse()

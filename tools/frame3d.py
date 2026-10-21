@@ -64,8 +64,13 @@ def prism(outer, holes, plane, w0, L):
     return BRepPrimAPI_MakePrism(fm.Face(), gp_Vec(*v)).Shape()
 
 
-def tube(axis, lo, hi, t, ro, ri):
-    """矩形管：轴向 axis，占据包围盒 lo ~ hi（三个坐标），壁厚 t，外角 ro、内角 ri"""
+def tube(axis, lo, hi, t, ro=None, ri=None, mat='SUS304'):
+    """矩形管：轴向 axis，占据包围盒 lo ~ hi（三个坐标），壁厚 t；外角 / 内角默认按材料规则
+    （Q235B 外 R = 1.5t、SUS304 外 R = 1.2t，内 R = 外 R − t，见 tube_step.corner_r）"""
+    from tube_step import corner_r
+    r0, r1 = corner_r(t, mat)
+    ro = r0 if ro is None else ro
+    ri = r1 if ri is None else ri
     ia = AX[axis]
     pl = [k for k in 'xyz' if k != axis]
     iu, iv = AX[pl[0]], AX[pl[1]]
