@@ -10,6 +10,7 @@
 import os, re, collections
 
 PAT = re.compile(r'(\d{7})([A-Z])(\d{2})?')
+SUFFIX = re.compile(r'(-SUS304|\(\d+\))$')      # 3370137A-SUS304、1460113A(37)：后缀不算物料号
 _IDX = None
 
 
@@ -28,7 +29,7 @@ def _index():
         for p in histlib._DATA['parts']:
             f = [s.strip() for s in p['h'].split('·')]
             no = next((s for s in f if re.match(r'^(NO|AO)\.?\s*\d', s)), '')
-            code = next((s for s in f if PAT.fullmatch(s)), None)
+            code = next((SUFFIX.sub('', s) for s in f if PAT.fullmatch(SUFFIX.sub('', s))), None)
             if not code:
                 continue
             m = PAT.fullmatch(code)
@@ -42,7 +43,7 @@ def _latest(lst):
 
 def mark(code, dxf_dir=None):
     """返回 (表头追加文字, [红字提醒])"""
-    m = PAT.fullmatch(code)
+    m = PAT.fullmatch(SUFFIX.sub('', code))
     if not m:
         return '', []
     base, ver, sub = m.group(1), m.group(2), m.group(3) or ''
