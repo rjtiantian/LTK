@@ -22,6 +22,7 @@ K90 = math.tan(math.radians(90) / 4)
 EPS = 0.03
 
 _CACHE = {}
+VIEWMAP = {}          # 物料号 → 展开坐标回到图纸视图的映射（只给核对脚本用）
 
 
 class Sheet:
@@ -133,15 +134,43 @@ def _bulge(deg):
     return math.tan(math.radians(deg) / 4)
 
 
-def edge_pts(x0, x1, centers, R, rf):
+def split_tail(code, cs, L, R, rf):
+    """缺口圆心排到端头以外、只剩一小截圆弧切掉端角的（1610321A / 1610322A 新图右端）：
+    返回 (端头内的圆心, 端头外那个圆心或 None)。左端出现这种情况、或缺口压到端角圆角上的直接报错。"""
+    tail = [c for c in cs if c > L]
+    inner = [c for c in cs if c <= L]
+    if len(tail) > 1 or (tail and not tail[0] - R < L):
+        raise ValueError('%s 端头外缺口 %s' % (code, tail))
+    if any(c < R + rf for c in inner):
+        raise ValueError('%s 左端缺口压端角 %s' % (code, inner))
+    lim = (tail[0] - R) if tail else L - rf    # 最后一个整缺口的倒圆不能越过端头 / 残缺口
+    if inner and inner[-1] + math.sqrt((R + rf) ** 2 - rf ** 2) > lim + 1e-6:
+        raise ValueError('%s 右端缺口压端角 %s' % (code, inner[-1]))
+    return inner, (tail[0] if tail else None)
+
+
+def tail_arc(c, L, R):
+    """端头外缺口在端面上的高 h 和从自由边 (c-R, 0) 走到 (L, h) 的圆心角（度）"""
+    h = math.sqrt(R * R - (c - L) ** 2)
+    return h, math.degrees(math.asin(h / R))
+
+
+def edge_pts(x0, x1, centers, R, rf, sharp=()):
     """自由边上一串半圆缺口：沿 +x 走，材料在 d 增大一侧。返回 [(x, d, 到下一点的 bulge)]；d = 距自由边。
-    缺口圆心在自由边上（半径 R），两缺口之间倒圆 rf；节距放不下两个倒圆时（如 57.5）用一个 rf 圆弧同时相切两圆。"""
+    缺口圆心在自由边上（半径 R），两缺口之间倒圆 rf；节距放不下两个倒圆时（如 57.5）用一个 rf 圆弧同时相切两圆。
+    sharp 里的缺口两边都不倒圆。"""
     pts = [[x0, 0.0, 0.0]]
     dx = math.sqrt((R + rf) ** 2 - rf ** 2)
     ang = math.degrees(math.asin(rf / (R + rf)))         # 接点相对圆心的仰角（9.435°）
     cs = sorted(centers)
     prev_tip = None                                      # 上一段留下的尖角圆（cx, cy）
     for i, c in enumerate(cs):
+        if c in sharp:                                   # 不倒圆的缺口：直边直接接半圆（1610321A 新图最后一个整缺口）
+            if prev_tip is not None:
+                raise ValueError('不倒圆缺口 %s 紧挨着尖角圆' % c)
+            pts.append([c - R, 0.0, -1.0])
+            pts.append([c + R, 0.0, 0.0])
+            continue
         if prev_tip is None:
             pts.append([c - dx, 0.0, _bulge(90 - ang)])  # 直边 → 倒圆
             p = (c - R * math.cos(math.radians(ang)), R * math.sin(math.radians(ang)))
@@ -256,6 +285,7 @@ def body(C, code, L):
 
     # ---- 外形
     Rc = 5.0
+    VIEWMAP[code] = dict(kind='body', main=main, wing=wing, y_free=y_free, yr=yr, w=w)
     p = Piece()
     path = Path(Rc, 0)
     for xa, xb, sn in sorted(notches):
@@ -292,7 +322,9 @@ def guard(C, code, L):
     if S.circles_in(web):
         raise ValueError('%s 腹板有孔' % code)
     # R25.5 缺口：可见两段，圆心在后腿自由边（视图底）
-    cs = sorted({round(a[0] - x0, 3) for a in S.arcs_in(main) if abs(a[2] - 25.5) < 0.01 and abs(a[1] - main[1]) < EPS})
+    # （圆心可能在视图外：右端被一截残缺口切掉端角，所以不用 arcs_in）
+    cs = sorted({round(a[0] - x0, 3) for a in S.arcs if abs(a[2] - 25.5) < 0.01 and abs(a[1] - main[1]) < EPS
+                 and main[0] - 25.5 < a[0] < main[2] + 25.5 and main[1] - 1 < a[1] < main[3]})
     # 倒圆 / 端角
     rf = {round(a[2], 3) for a in S.arcs_in(main) if a[2] < 10}
     if rf != {5.0}:
@@ -308,9 +340,29 @@ def guard(C, code, L):
     r2 = r1 + 60 - w
     top = r2 + hB - w / 2
     R, Rc = 25.5, 5.0
+    VIEWMAP[code] = dict(kind='guard', main=main, web=web, hF=hF, top=top, r1=r1, r2=r2, w=w)
     p = Piece()
-    path = Path(Rc, 0).to(L - Rc, 0).arc(L, Rc, K90).to(L, top - Rc).arc(L - Rc, top, K90)
-    pts = edge_pts(Rc, L - Rc, cs, R, Rc)
+    # 每个整缺口两边有没有 R5 倒圆（圆心在自由边内 5、距缺口圆心 dx）
+    dx = math.sqrt((R + Rc) ** 2 - Rc ** 2)
+    fil = [a[0] - x0 for a in S.arcs_in(main) if abs(a[2] - Rc) < 0.01 and abs(a[1] - main[1] - Rc) < EPS]
+    sharp = set()
+    for c in cs:
+        if c > L:
+            continue
+        n = sum(min((abs(f - (c + sg * dx)) for f in fil), default=9) < EPS for sg in (-1, 1))
+        if n == 0:
+            sharp.add(c)
+        elif n == 1 and not (c - dx < Rc + 1e-6 or c + dx > L - Rc - 1e-6):
+            raise ValueError('%s 缺口 %s 只有一边倒圆' % (code, c))
+    cs, tail = split_tail(code, cs, L, R, Rc)
+    path = Path(Rc, 0).to(L - Rc, 0).arc(L, Rc, K90)
+    if tail is None:
+        path.to(L, top - Rc).arc(L - Rc, top, K90)
+        pts = edge_pts(Rc, L - Rc, cs, R, Rc, sharp)
+    else:                              # 端角被残缺口切掉：端面直上到缺口，沿 R25.5 顺时针到自由边，不倒圆（按图）
+        h, th = tail_arc(tail, L, R)
+        path.to(L, top - h).arc(tail - R, top, -_bulge(th))
+        pts = edge_pts(Rc, tail - R, cs, R, Rc, sharp)
     add_reverse(path, pts, lambda d: top - d)
     path.arc(0, top - Rc, K90).to(0, Rc).arc(Rc, 0, K90)
     path.into(p)
@@ -371,22 +423,30 @@ def lower(C, code, L, a, b, big, small, slot=None):
     else:
         raise ValueError('%s 断开 %s 处' % (code, len(brks)))
 
-    def tx(v):
+    def tx(v, ref=None):
+        """视图 x → 真实 x；ref 是判断落在哪一段用的点（断开处被截掉一半的缺口，圆心在另一段，要按弧中点判断）"""
         s = v - x0
         for k, br in enumerate(brks):
-            if v > br:
+            if (v if ref is None else ref) > br:
                 s += shifts[k]
         return s
 
+    def atx(q):                             # 圆弧圆心按弧中点所在的段换算
+        m = math.radians((q[3] + ((q[4] - q[3]) % 360) / 2))
+        return tx(q[0], q[0] + q[2] * math.cos(m))
+
     arcs = S.arcs_in(rg)
+    # 圆心在视图外的残缺口（端头外那个缺口切掉端角，1610322A 新图右端；断开处的半个缺口圆心也可能落在另一段）
+    arcs += [q for q in S.arcs if abs(q[2] - 25.5) < 0.01 and abs(q[1] - y0) < EPS and q not in arcs
+             and rg[0] - 25.5 < q[0] < rg[2] + 25.5]
     # ---- 看得见的缺口必须都在标注序列上
     for a_ in arcs:
         if abs(a_[2] - 25.5) < 0.01:
-            if abs(a_[1] - y0) > EPS or min(abs(tx(a_[0]) - c) for c in big) > 0.05:
-                raise ValueError('%s Φ51 缺口 x=%.3f 不在标注序列' % (code, tx(a_[0])))
+            if abs(a_[1] - y0) > EPS or min(abs(atx(a_) - c) for c in big) > 0.05:
+                raise ValueError('%s Φ51 缺口 x=%.3f 不在标注序列' % (code, atx(a_)))
         elif abs(a_[2] - 4.5) < 0.01:
-            if abs(a_[1] - (y1 - 4)) > EPS or min(abs(tx(a_[0]) - c) for c in small) > 0.05:
-                raise ValueError('%s Φ9 缺口 x=%.3f 不在标注序列' % (code, tx(a_[0])))
+            if abs(a_[1] - (y1 - 4)) > EPS or min(abs(atx(a_) - c) for c in small) > 0.05:
+                raise ValueError('%s Φ9 缺口 x=%.3f 不在标注序列' % (code, atx(a_)))
     # 上腿两端
     ups = sorted(l[0] for l in S.lines_in(rg) if abs(l[0] - l[2]) < 1e-3 and abs(l[1] - l[3]) > 1 and l[1] > y0 + 42.5 and l[3] > y0 + 42.5
                  and min(l[1], l[3]) < y0 + 46 and tx(l[0]) not in (0, L))
@@ -424,10 +484,20 @@ def lower(C, code, L, a, b, big, small, slot=None):
     ye = web_s(rel)
     yc = ye + rr                            # 根部凹圆心
 
+    VIEWMAP[code] = dict(kind='lower', x0=x0, y0=y0, y1=y1, wtop=wtop, brks=brks, shifts=shifts, y_1=y_1, y_2=y_2, top=top, w=w)
     p = Piece()
     path = Path(rc, 0)
-    add_forward(path, edge_pts(rc, L - rc, big, 25.5, rf), lambda d: d)
-    path.arc(L, rc, K90).to(L, ye - rr).arc(L - rr, ye, K90)
+    big_in, tail = split_tail(code, big, L, 25.5, rf)
+    if tail is None:
+        add_forward(path, edge_pts(rc, L - rc, big_in, 25.5, rf), lambda d: d)
+        path.arc(L, rc, K90)
+    else:                                   # 端角被残缺口切掉：沿 R25.5 顺时针到端面，不倒圆（按图）
+        if not any(abs(atx(q) - tail) < 0.05 for q in arcs if abs(q[2] - 25.5) < 0.01):
+            raise ValueError('%s 表里的端头外缺口 %s 图上没有' % (code, tail))
+        h, th = tail_arc(tail, L, 25.5)
+        add_forward(path, edge_pts(rc, tail - 25.5, big_in, 25.5, rf), lambda d: d)
+        path.arc(L, h, -_bulge(th))
+    path.to(L, ye - rr).arc(L - rr, ye, K90)
     path.to(b + rr, ye).arc(b, yc, -K90)
     # 上腿：右端角 R4
     path.to(b, top - 4).arc(b - 4, top, K90)
@@ -466,19 +536,19 @@ def lower(C, code, L, a, b, big, small, slot=None):
 
 
 # ---------------------------------------------------------------- 表
-BODY = [('1610301A-K82.5-L2310', 2310), ('1610302A-K82.5-L2310', 2310), ('1610309A-K63.5-L2042', 2042),
-        ('1610310A-K63.5-L2042', 2042), ('1610315A-K82.5-L2062.5', 2062.5), ('1610316A-K82.5-L2062.5', 2062.5),
+BODY = [('1610301A-K82.5-L2310', 2310), ('1610302A-K82.5-L2310', 2310), ('1610309A-K63.5-L2042', 2124.5),
+        ('1610310A-K63.5-L2042', 2124.5), ('1610315A-K82.5-L2062.5', 2062.5), ('1610316A-K82.5-L2062.5', 2062.5),
         ('1610343A-K82.5-L2475', 2475), ('1610344A-K82.5-L2475', 2475), ('1610501A-K82.5-L1485', 1485),
         ('1610502A-K82.5-L1485', 1485), ('1610503A-K82.5-L1567.5', 1567.5), ('1610504A-K82.5-L1567.5', 1567.5),
         ('1610801A-K82.5-L907.5', 907.5), ('1610802A-K82.5-L907.5', 907.5)]
-GUARD = [('1610311A-K82.5-L2310', 2310), ('1610317A-K82.5-L2062.5', 2062.5), ('1610321A-K63.5-L2042', 2042),
+GUARD = [('1610311A-K82.5-L2310', 2310), ('1610317A-K82.5-L2062.5', 2062.5), ('1610321A-K63.5-L2042', 2124.5),
          ('1610345A-K82.5-L2475', 2475), ('1610511A-K82.5-L1485', 1485), ('1610513A-K82.5-L1567.5', 1567.5),
          ('1610813A-K82.5-L907.5', 907.5)]
 # 号: L, 上腿 a, b, Φ51 序列, Φ9 序列, 开槽（尺寸全部抄标注，看得见的缺口在 lower() 里逐个核对）
 _S825 = lambda n: seq(38.25, (82.5, n))
-LOWER = [('1610312A-K82.5-L2310', 2304, 25, 2281, _S825(27), _S825(27), None),
+LOWER = [('1610312A-K82.5-L2310', 2304, 25, 2281, _S825(27), _S825(27), (1043, 1183)),
          ('1610318A-K82.5-L2062.5', 2056.5, 25, 2033.5, _S825(24), _S825(24), (587, 739)),
-         ('1610322A-K63.5-L2042', 2036, 22, 2014, seq(41.25, (82.5, 3), (57.5, 1), (63.5, 26)), seq(28.75, (63.5, 31)), (1005, 1155)),
+         ('1610322A-K63.5-L2042', 2118.5, 22, 2096.5, seq(41.25, (82.5, 4), (57.5, 1), (63.5, 27)), seq(28.75, (63.5, 32)), (1087.5, 1237.5)),
          ('1610346A-K82.5-L2475', 2469, 25, 2446, _S825(29), _S825(29), None),
          ('1610512A-K82.5-L1485', 1479, 25, 1456, _S825(17), _S825(17), None),
          ('1610514A-K82.5-L1567.5', 1561.5, 25, 1538.5, _S825(18), _S825(18), None),
