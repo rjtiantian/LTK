@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """NO.481 零件展开（第 C 批）：3420258A00~3420268A、3420349A/350A、3420352A、3420604A00、3420605A00。
 外形尺寸法：展开长 = 各边外形之和 − 折弯数 × BD；面上特征距折弯外形交点 s → 红线 ± (s − BD/2)。"""
-import math
+import json, math, os
 
 
 def register(C):
@@ -197,151 +197,36 @@ def register(C):
         return [(C.lab(t, q), p)]
 
     # ------------------------------------------------------------------ 3420604A00 / 3420605A00 导向框
-    # 1.5mm：BD 2.3，R1.5。90° 弧长 3.7，45° 弧长 1.85（同 K），压边 r0.375 弧长取 π(0.375+0.8555)=3.866（K 同 90° 折弯，待复核）
-    FR = {
-        604: dict(W=490, H=500, Zs=300, xb=105, P=(0.118, 299.664), Dl=92.5, D=228.5, ear=300.357, ub=346.857,
-                  along=155, hd=32.5, zt=298.635),
-        605: dict(W=620, H=460, Zs=260, xb=102.5, P=(0.142, 259.64), Dl=90, D=223.5, ear=260.387, ub=306.887,
-                  along=85, hd=30, zt=258.695),
-    }
-    T15 = 1.5; A90 = 3.7; A45 = 1.85; AHEM = math.pi * (0.375 + 0.8555); HEM = 4.125; L45 = 41.882
+    # 11-07 客户改“配三维图做”：几何一律取新 STP（拆成单件后 step_unfold2 展开，结果在 481/JSON），不再手工建模。
+    # 大折弯内 R10（> 2.5t）按中性层只画红线，45°、180° 压边只画红线，Z 弯内 R1.5 按 BD 2.3。
+    T15 = 1.5
 
-    def slant(f):
-        """斜壁方向：u 沿折弯线向下，n 垂直折弯线指向大面内侧"""
-        th = math.atan2(f['xb'], f['Zs'])
-        return (math.sin(th), -math.cos(th)), (math.cos(th), math.sin(th))
-
-    def lower_wall(f, u, n, w):
-        """斜壁（A01 / A02 同形）：返回左半边从底到顶的点（到 C2）及 2 个 Φ5 的孔心"""
-        Px, Pz = f['P']; xb = f['xb']
-        Dv = f['Dl'] - w                                  # 外面线 → 自由边（外形 − BD）
-        c1 = (xb - Dv * n[0], -Dv * n[1])
-        c2 = (Px - Dv * n[0], Pz - Dv * n[1])
-        H = (c2[0] + f['along'] * u[0], c2[1] + f['along'] * u[1])   # 自由边半圆孔（两半对成 Φ5）
-        h0 = (H[0] + 2.5 * u[0], H[1] + 2.5 * u[1])
-        h1 = (H[0] - 2.5 * u[0], H[1] - 2.5 * u[1])
-        dv = f['hd'] - w
-        hc = (Px + f['along'] * u[0] - dv * n[0], Pz + f['along'] * u[1] - dv * n[1])   # 整圆 Φ5
-        pts = [(xb, 0, 0), (c1[0], c1[1], 0), (h0[0], h0[1], 1.0), (h1[0], h1[1], 0), (c2[0], c2[1], 0)]
-        return pts, hc
-
-    def red_slant(p, f, u, n, w, top):
-        """斜折弯线：从 top（红线上的上端）到底边 z=0"""
-        k = top[1] / -u[1]
-        a = top; b = (top[0] + k * u[0], 0.0)
-        p.bend(a[0], a[1], b[0], b[1], w)
-        p.bend(f['W'] - a[0], a[1], f['W'] - b[0], b[1], w)
-
-    def frame_a01(f):
-        # 后壁 + 上段直侧壁（再 45° 外翻 + 压边）+ 中段 Z 形耳板（3-Φ5.5）+ 下段斜壁（2 孔）；左右对称
-        w = C.bd(T15); W = f['W']; D = f['D']; ear = f['ear']; ub = f['ub']; H = f['H']
-        u, n = slant(f)
-        Px, Pz = f['P']
-        low, hc = lower_wall(f, u, n, w)
-        t_ap = (ear - Pz) / n[1]
-        apex = (Px + t_ap * n[0], ear)                    # 斜壁顶端线与耳板底边的交点
-        # 耳板 Z 弯：X = 2.3 − s（s 距后壁外面）
-        X1 = w - (D - 51.5)                               # 第一弯切线
-        X2 = X1 - A90 - 14                                # 第二弯切线（中间平段 14）
-        X3 = X2 - A90                                     # 耳板起点（y_p=47）
-        Xe = lambda yp: X3 - (47 - yp)
-        c1 = (Xe(36.284), ear + 8.716); c2 = (Xe(22.142), ear + 22.858); c3 = (Xe(8.0), ear + 37.0)
-        a1 = math.radians(46.025); a3 = math.radians(133.975)
-        e0 = (c1[0], ear)
-        e1 = (c1[0] - 8.716 * math.sin(a1), ear + 8.716 * (1 - math.cos(a1)))
-        e2 = (c3[0] - 8.0 * math.sin(a1), c3[1] - 8.0 * math.cos(a1))
-        e3 = (c3[0], ear + 45.0)
-        Xs = w - (D - 52.25)                              # 1.5 宽割缝端
-        Xt45 = w - (D - 44.743)                           # 45° 弯切线
-        Xend = Xt45 - A45 - L45 - AHEM - HEM
-        left = low + [
-            (apex[0], apex[1], 0), (e0[0], e0[1], -math.tan(a1 / 4)), (e1[0], e1[1], 0),
-            (e2[0], e2[1], -math.tan(a3 / 4)), (e3[0], e3[1], 0),
-            (Xs, ear + 45, 0), (Xs, ub, 0), (Xend, ub, 0), (Xend, H, 0)]
-        p = C.Piece().poly(sym_path(left, W), True)
-        # 折弯线：后壁↔上段侧壁、后壁↔斜壁
-        xr = w / 2
-        p.bend(xr, ear, xr, H, w).bend(W - xr, ear, W - xr, H, w)
-        red_slant(p, f, u, n, w, (Px + xr * n[0], Pz + xr * n[1]))
-        for s in (1, -1):
-            mx = (lambda x: x) if s == 1 else (lambda x: W - x)
-            r45 = Xt45 - A45 / 2                          # 45°、180° 压边：只画红线
-            rhem = Xt45 - A45 - L45 - AHEM / 2
-            p.bend(mx(r45), ub, mx(r45), H, 0, red_only=True)
-            p.bend(mx(rhem), ub, mx(rhem), H, 0, red_only=True)
-            p.bend(mx(X1 - A90 / 2), ear, mx(X1 - A90 / 2), ear + 45, w)
-            p.bend(mx(X2 - A90 / 2), ear, mx(X2 - A90 / 2), ear + 45, w)
-            for c in (c1, c2, c3):
-                p.circle(mx(c[0]), c[1], 5.5)
-            p.circle(mx(hc[0]), hc[1], 5)
-        return p
-
-    def frame_a02(f):
-        # 前壁（梯形，上口压边，压边两头内缩到 x=3）+ 两块斜壁；斜壁顶端有折弯让位
-        w = C.bd(T15); W = f['W']; zt = f['zt']
-        u, n = slant(f)
-        Px, Pz = f['P']
-        low, hc = lower_wall(f, u, n, w)
-        # 前壁切线与 z=zt 的交点 T3 = Q + 3n，Q 在外面线上（折弯区上端）
-        tq = (Pz + 0 - (zt - 3 * n[1])) / (-u[1])         # 从 P 沿 u 到 Q 的距离
-        Q = (Px + tq * u[0], Pz + tq * u[1])
-        T3 = (Q[0] + 3 * n[0], zt)
-        Ta = (Px - 0.7 * n[0], Pz - 0.7 * n[1])           # 斜壁切线（红线外 1.85）上的顶端
-        Tb = (Q[0] - 0.7 * n[0], Q[1] - 0.7 * n[1])
-        top = zt + AHEM + HEM
-        left = low + [(Ta[0], Ta[1], 0), (Tb[0], Tb[1], 0), (T3[0], T3[1], 0), (3.0, zt, 0), (3.0, top, 0)]
-        p = C.Piece().poly(sym_path(left, W), True)
-        xr = w / 2
-        red_slant(p, f, u, n, w, (Q[0] + xr * n[0], Q[1] + xr * n[1]))
-        rh = zt + AHEM / 2
-        p.bend(3.0, rh, W - 3.0, rh, 0, red_only=True)    # 180° 压边：只画红线
-        p.circle(hc[0], hc[1], 5).circle(W - hc[0], hc[1], 5)
-        return p
-
-    def side_a03(F):
-        # 3mm L 形：立边 73 + 脚边 F（外形），宽 160，BD 5；立边 2-Φ12（距底外面 50），上角切 30×30 R10
-        # 脚边 2-Φ9，端头 R10，中间 100 宽缩到距外面 38 / 43（R2）
-        t = 3; w = C.bd(t)
-        yr = F - w / 2
-        V = lambda z: yr + (z - w / 2)
-        p = C.Piece().outline([
-            (0, 0, 10), (30, 0, 2), (30, 5, 2), (130, 5, 2), (130, 0, 2), (160, 0, 10),
-            (160, V(43), 10), (130, V(73), 10), (30, V(73), 10), (0, V(43), 10)])
-        p.bend(0, yr, 160, yr, w)
-        p.circle(20, V(50), 12).circle(140, V(50), 12)
-        p.circle(15, 15, 9).circle(145, 15, 9)
-        return p
-
-    def side_a04(Lg, tri):
-        # 3mm L 形：短边 73（2-Φ12，端部切 30×30 R10）+ 长边 Lg（2-Φ9、中间 100 宽缩 5 R2，端角 R10），宽 160，BD 5
-        t = 3; w = C.bd(t)
-        yr = 73 - w / 2
-        V = lambda y: yr + (y - w / 2)                    # 长边：距折弯外面 y
-        top = V(Lg)
-        p = C.Piece().outline([
-            (30, 0, 10), (130, 0, 10), (160, 30, 10), (160, top, 10), (130, top, 2), (130, top - 5, 2),
-            (30, top - 5, 2), (30, top, 2), (0, top, 10), (0, 30, 10)])
-        p.bend(0, yr, 160, yr, w)
-        p.circle(20, 23, 12).circle(140, 23, 12)
-        p.circle(15, top - 15, 9).circle(145, top - 15, 9)
-        if tri:                                           # 604 长边 2 个三角窗 R5
-            p.outline([(10, V(156), 5), (45, V(30), 5), (80, V(156), 5)])
-            p.outline([(80, V(30), 5), (150, V(30), 5), (115, V(156), 5)])
+    def flat(name):
+        J = json.load(open(os.path.join(os.path.dirname(C.dxf_dir), 'JSON', name + '.json'), encoding='utf-8'))
+        p = C.Piece()
+        for lp in J['loops']:
+            if len(lp) == 2 and all(abs(abs(q[2]) - 1) < 1e-6 for q in lp):
+                p.circle((lp[0][0] + lp[1][0]) / 2, (lp[0][1] + lp[1][1]) / 2, math.dist(lp[0][:2], lp[1][:2]))
+            else:
+                p.poly([tuple(q) for q in lp], True)
+        for x, y, d in J['circles']:
+            p.circle(x, y, d)
+        for a, b, deg in J.get('bend_lines', []):
+            p.bend(a[0], a[1], b[0], b[1], J['bd'], red_only=abs(deg - 90) > 0.5)
         return p
 
     @C.part('3420604A00')
     def _(q):
-        # 明细栏：3400604A01 ×1、3400604A02 ×1、3420604A03 ×1、3420604A04 ×1、3420604A05 ×2；
+        # 明细栏：3400604A01 ×1、3400604A02 ×1、3420604A03 ×1、3420604A04 ×1、3420604A05 ×2、3420604A06 补焊件 ×2；
         # 3420601A04 把手 ×2（Φ12 圆钢折弯）、3400604A06 螺母 ×6（M5 机加件）不出激光
-        f = FR[604]
-        rib = C.plate('3420604A00.idw_图纸_7.dxf', (41.57, 94.04, 219.59, 132.06))
-        return [(C.lab(T15, q), frame_a01(f)), (C.lab(T15, q), frame_a02(f)),
-                (C.lab(3, q), side_a03(43)), (C.lab(3, q), side_a04(191, True)), (C.lab(3, 2 * q), rib)]
+        return [(C.lab(T15, q), flat('3400604A01')), (C.lab(T15, q), flat('3400604A02')),
+                (C.lab(3, q), flat('3420604A03')), (C.lab(3, q), flat('3420604A04')),
+                (C.lab(3, 2 * q), flat('3420604A05')), (C.lab(T15, 2 * q), flat('3420604A06'))]
 
     @C.part('3420605A00')
     def _(q):
-        # 明细栏：3420605A01 ×1、3420605A02 ×1、3420605A03 ×1、3420605A04 ×1；
-        # 3420601A04 把手 ×2、3400604A06 螺母 ×6 不出激光（图纸在 3420604A00 那套里）；没有加强筋
-        f = FR[605]
-        return [(C.lab(T15, q), frame_a01(f)), (C.lab(T15, q), frame_a02(f)),
-                (C.lab(3, q), side_a03(48)), (C.lab(3, q), side_a04(56, False))]
+        # 明细栏：3420605A01 ×1、3420605A02 ×1、3420605A03 ×1、3420605A04 ×1、3420604A06 补焊件 ×2；
+        # 3420601A04 把手 ×2、3400604A06 螺母 ×6 不出激光；没有加强筋
+        return [(C.lab(T15, q), flat('3420605A01')), (C.lab(T15, q), flat('3420605A02')),
+                (C.lab(3, q), flat('3420605A03')), (C.lab(3, q), flat('3420605A04')),
+                (C.lab(T15, 2 * q), flat('3420604A06'))]

@@ -27,6 +27,22 @@ mul = lambda a, k: tuple(x * k for x in a)
 cross = lambda a, b: (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
 
 
+
+def bend_bd(bd, t, deg, ri):
+    """这一道折弯的折弯扣除：90° 且内 R ≤ 2.5t 用查表 bd（压机常规折弯）；
+    非 90° 或大圆弧（内 R > 2.5t，模型半径就是真实半径）按中性层算，K 由查表 bd 反推，大圆弧中性层靠近中面 K=0.45。
+    返回 (BD, 是否常规折弯)"""
+    if bd <= 0 or t <= 0:
+        return bd, True
+    big = ri > 2.5 * t
+    if abs(deg - 90) < 0.5 and not big:
+        return bd, True
+    K = 0.45 if big else (4 * t - bd) / (math.pi / 2 * t) - 1
+    R = ri if big else t
+    a = math.radians(deg)
+    return 2 * (R + t) * math.tan(a / 2) - a * (R + K * t), False
+
+
 def norm(a):
     L = math.sqrt(dot(a, a)); return mul(a, 1 / L)
 
@@ -123,7 +139,11 @@ def main():
 
     def nbr_planes(cf):
         D = info[cf][1]
-        return sorted({g for k in fedges[cf] for g in eface[k] if g != cf and info[g][0] == 'P' and abs(dot(info[g][1], D)) < 1e-6})
+        # 只认和圆柱相切的平面（压边两头的小缺口面也和圆柱共边，但穿过轴线，不是折弯相邻的板）
+        def tangent(g):
+            return abs(abs(dot(info[g][1], sub(info[g][2], info[cf][2]))) - info[cf][3]) < 1e-3
+        return sorted({g for k in fedges[cf] for g in eface[k]
+                       if g != cf and info[g][0] == 'P' and abs(dot(info[g][1], D)) < 1e-6 and tangent(g)})
     # 折弯：同轴、半径差 > 0.3、两侧各有两块相邻平面
     cyls = [i for i in info if info[i][0] == 'C']
     bends, used = [], set()
@@ -190,16 +210,52 @@ def main():
             po = next(f for f in b['out_f'] if flat_of[f] == cur)
             co = next(f for f in b['out_f'] if flat_of[f] == ch)
             np_, nc = info[po][1], info[co][1]
-            M = solve3([np_, nc, D], [dot(np_, info[po][2]), dot(nc, info[co][2]), dot(D, L)])
             def inplane(v, nn):
                 v = sub(v, mul(D, dot(v, D))); v = sub(v, mul(nn, dot(v, nn))); return norm(v)
+            if abs(abs(dot(np_, nc)) - 1) < 1e-6:          # 180° 压边：两面平行没有外形交点，按中性层弧长接到切线上（只画红线）
+                Fp = maps[cur]; Fd = Fp.vec(D)
+                tang = {}
+                for kk in fedges[cyl]:
+                    oth = [g for g in eface[kk] if g != cyl]
+                    if oth and oth[0] in (side[cur], side[ch]):
+                        c = BRepAdaptor_Curve(edges[kk])
+                        tang[oth[0]] = V(c.Value((c.FirstParameter() + c.LastParameter()) / 2))
+                tp, tc = tang[side[cur]], tang[side[ch]]
+                ep = inplane(sub(tp, face_point(faces[side[cur]])), np_)
+                ec = inplane(sub(face_point(faces[side[ch]]), tc), nc)
+                E = Fp.vec(ep); Tp = Fp(tp)
+                K = (4 * t - A.bd) / (math.pi / 2 * t) - 1
+                arc = math.pi * (info[b['inner']][3] + K * t)
+                ax3 = add(mul(D, Fd[0]), mul(ec, E[0])); bx3 = add(mul(D, Fd[1]), mul(ec, E[1]))
+                d0 = dot(sub(tc, tp), D)
+                maps[ch] = Map(tc, ax3, bx3, (Tp[0] + arc * E[0] + d0 * Fd[0], Tp[1] + arc * E[1] + d0 * Fd[1]))
+                u1 = norm(cross(D, (1, 0, 0) if abs(D[0]) < 0.9 else (0, 1, 0))); u2 = cross(D, u1)
+                ang = lambda p, L=L, u1=u1, u2=u2: math.atan2(dot(sub(p, L), u2), dot(sub(p, L), u1))
+                a_p = ang(tp)
+                # 半圈转向：用圆柱面中点定方向
+                g_ = BRepAdaptor_Surface(faces[cyl])
+                mid_ = V(g_.Value((g_.FirstUParameter() + g_.LastUParameter()) / 2, (g_.FirstVParameter() + g_.LastVParameter()) / 2))
+                f_ = ((ang(mid_) - a_p) % (2 * math.pi))
+                sw = math.pi if f_ < math.pi else -math.pi
+                bend_map[cyl] = (cur, ch, tp, tc, D, a_p, sw, ang)
+                ss = []
+                for kk in fedges[cyl]:
+                    c = BRepAdaptor_Curve(edges[kk])
+                    ss += [dot(sub(V(c.Value(c.FirstParameter())), tp), D), dot(sub(V(c.Value(c.LastParameter())), tp), D)]
+                R0 = (Tp[0] + arc / 2 * E[0], Tp[1] + arc / 2 * E[1])
+                red.append(((R0[0] + min(ss) * Fd[0], R0[1] + min(ss) * Fd[1]), (R0[0] + max(ss) * Fd[0], R0[1] + max(ss) * Fd[1]), 180.0))
+                queue.append(ch); order.append(ch)
+                continue
+            M = solve3([np_, nc, D], [dot(np_, info[po][2]), dot(nc, info[co][2]), dot(D, L)])
             ep = inplane(sub(M, face_point(faces[side[cur]])), np_)
             ec = inplane(sub(face_point(faces[side[ch]]), M), nc)
             Fp = maps[cur]
             FM = Fp(M); Fd = Fp.vec(D); E = Fp.vec(ep)
             # F_c(p) = FM − BD·E + ((p−M)·D)·Fd + ((p−M)·ec)·E
             ax3 = add(mul(D, Fd[0]), mul(ec, E[0])); bx3 = add(mul(D, Fd[1]), mul(ec, E[1]))
-            maps[ch] = Map(M, ax3, bx3, (FM[0] - A.bd * E[0], FM[1] - A.bd * E[1]))
+            turn = math.degrees(math.acos(max(-1.0, min(1.0, dot(ep, ec)))))
+            bd1, std = bend_bd(A.bd, t, turn, info[b['inner']][3])
+            maps[ch] = Map(M, ax3, bx3, (FM[0] - bd1 * E[0], FM[1] - bd1 * E[1]))
             # 折弯区：两条切线（与两侧所选面相交的圆柱边）
             tang = {}
             for kk in fedges[cyl]:
@@ -217,15 +273,19 @@ def main():
             for kk in fedges[cyl]:
                 c = BRepAdaptor_Curve(edges[kk])
                 ss += [dot(sub(V(c.Value(c.FirstParameter())), M), D), dot(sub(V(c.Value(c.LastParameter())), M), D)]
-            R0 = (FM[0] - A.bd / 2 * E[0], FM[1] - A.bd / 2 * E[1])
+            R0 = (FM[0] - bd1 / 2 * E[0], FM[1] - bd1 / 2 * E[1])
             red.append(((R0[0] + min(ss) * Fd[0], R0[1] + min(ss) * Fd[1]), (R0[0] + max(ss) * Fd[0], R0[1] + max(ss) * Fd[1]),
-                        abs(math.degrees(sw))))
+                        abs(math.degrees(sw)) if std or abs(abs(math.degrees(sw)) - 90) > 0.5 else abs(math.degrees(sw)) + 0.6))
             queue.append(ch); order.append(ch)
 
     def M3(p, f):
         if f in bend_map:
             cur, ch, tp, tc, D, a_p, sw, ang = bend_map[f]
-            fr = ((ang(p) - a_p + math.pi) % (2 * math.pi) - math.pi) / sw
+            if abs(abs(sw) - math.pi) < 1e-6:              # 180° 压边：沿转向量 0~π（切线上的点防舍入跳到 2π）
+                x_ = ((ang(p) - a_p) if sw > 0 else (a_p - ang(p))) % (2 * math.pi)
+                fr = (0.0 if x_ > 2 * math.pi - 1e-3 else x_) / math.pi
+            else:
+                fr = ((ang(p) - a_p + math.pi) % (2 * math.pi) - math.pi) / sw
             P0 = add(tp, mul(D, dot(sub(p, tp), D))); P1 = add(tc, mul(D, dot(sub(p, tc), D)))
             q0, q1 = maps[cur](P0), maps[ch](P1)
             return (q0[0] + fr * (q1[0] - q0[0]), q0[1] + fr * (q1[1] - q0[1]))
