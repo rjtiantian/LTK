@@ -478,9 +478,15 @@ def lower(C, code, L, a, b, big, small, slot=None):
     sl_lines = [l for l in wlines if abs(l[0] - l[2]) < 1e-3 and abs(abs(l[1] - l[3]) - 27) < 0.1]
     if bool(sl_lines) != bool(slot):
         raise ValueError('%s 开槽和表不符 %s' % (code, sl_lines))
-    if slot and not any(abs(l[1] - l[3]) < 1e-3 and abs(l[1] - (y0 + 39)) < EPS and abs(abs(l[0] - l[2]) - (slot[1] - slot[0])) < 0.05
+    # 槽底：slot 第 3 项 = 腹板视图上槽底距下腿外表面的高度 h（只切进折弯圆角一部分，1610512A 开槽件 0.405）；
+    # 外 R3，从下腿切点起 φ = acos((3 − h) / 3)，展开按弧长比例落在折弯区（BA = 2×3 − BD）；没有第 3 项 = 切到下腿切点
+    hcut = slot[2] if slot and len(slot) > 2 else None
+    if slot and hcut is None and not any(abs(l[1] - l[3]) < 1e-3 and abs(l[1] - (y0 + 39)) < EPS and abs(abs(l[0] - l[2]) - (slot[1] - slot[0])) < 0.05
                         for l in S.lines_in(rg)):
         raise ValueError('%s 开槽下沿不在下腿距外表面 3 处' % code)
+    if hcut is not None and not any(abs(l[1] - l[3]) < 1e-3 and abs(l[1] - (y0 + 42 - t)) < EPS and abs(abs(l[0] - l[2]) - (slot[1] - slot[0])) < 0.05
+                                    for l in S.lines_in(rg)):
+        raise ValueError('%s 开槽在主视图上应只切腹板厚度' % code)
     ye = web_s(rel)
     yc = ye + rr                            # 根部凹圆心
 
@@ -526,6 +532,8 @@ def lower(C, code, L, a, b, big, small, slot=None):
     # 开槽：腹板上距下腿外表面 30，向下穿过折弯到下腿距外表面 3（主视图 42.639 那条线）
     if slot:
         sl = y_1 - (3 - w / 2)
+        if hcut is not None:
+            sl += (2 * 3 - w) * math.degrees(math.acos((3 - hcut) / 3)) / 90
         sh = y_1 + (30 - w / 2)
         p.rect(slot[0], sl, slot[1], sh)
         p.bend(0, y_1, slot[0], y_1, w).bend(slot[1], y_1, L, y_1, w)
@@ -551,6 +559,7 @@ LOWER = [('1610312A-K82.5-L2310', 2304, 25, 2281, _S825(27), _S825(27), (1043, 1
          ('1610322A-K63.5-L2042', 2118.5, 22, 2096.5, seq(41.25, (82.5, 4), (57.5, 1), (63.5, 27)), seq(28.75, (63.5, 32)), (1087.5, 1237.5)),
          ('1610346A-K82.5-L2475', 2469, 25, 2446, _S825(29), _S825(29), None),
          ('1610512A-K82.5-L1485', 1479, 25, 1456, _S825(17), _S825(17), None),
+         ('1610512A-K82.5-L1485-开槽', 1479, 25, 1456, _S825(17), _S825(17), (257, 409, 0.405)),   # 11-12 更改单：2 件里 1 件改开槽
          ('1610514A-K82.5-L1567.5', 1561.5, 25, 1538.5, _S825(18), _S825(18), None),
          ('1610814A-K82.5-L907.5', 901.5, 25, 878.5, _S825(10), _S825(10), None)]
 

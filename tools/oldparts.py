@@ -64,7 +64,8 @@ def mark(code, dxf_dir=None):
         suffix = '更新(%s为%s版)' % (_latest([h for h in older if h[0] == ov]), ov)
     if dxf_dir and os.path.isdir(dxf_dir):
         vs = set()
-        for f in os.listdir(dxf_dir):
+        step_dir = os.path.join(os.path.dirname(os.path.abspath(dxf_dir)), 'STEP')     # 只给了 STEP 的新版也算有图
+        for f in os.listdir(dxf_dir) + (os.listdir(step_dir) if os.path.isdir(step_dir) else []):
             mm = PAT.match(f)
             if mm and mm.group(1) == base and (mm.group(3) or '') == sub:
                 vs.add(mm.group(2))
