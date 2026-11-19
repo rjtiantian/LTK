@@ -42,6 +42,9 @@ class Ctx:
         self.dxf_dir = dxf_dir
         self.mat = mat
         self.PARTS = {}
+        self.MIRROR = {}                  # 镜像件 code -> 源件 code（轴测图取源件 DWG，块按 X 镜像插）
+        self.ISO = {}                     # 焊接件 code -> 装配 STEP：下料图该列最顶上插轴测图块（layout.build）
+        self.customer = '蓝探科'          # 轴测图块名前缀，别的客户在零件模块里改
 
     # ---- 路径 / 材料 ----
     def DXF(self, name):
@@ -64,8 +67,13 @@ class Ctx:
             return f
         return deco
 
+    def iso(self, code, step):
+        """焊接件：登记整件 STEP，下料图在该列最顶上插消隐轴测图块（块名 客户 订单·时间·号，块内 1:1）"""
+        self.ISO[code] = step
+
     def mirror(self, code, src):
         """镜像件：按源件左右镜像"""
+        self.MIRROR[code] = src
         def f(q):
             res = self.PARTS[src](q)
             if isinstance(res, tuple):

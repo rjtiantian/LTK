@@ -37,3 +37,4 @@ def register(C):
             rib, t2 = flat(code + '-筋')
             return [(C.lab(t, q), plate), (C.lab(t2, 2 * q), rib)]   # 筋平板，两块同形左右翻面用
         C.part(code)(make)
+        C.iso(code, os.path.join(os.path.dirname(C.dxf_dir), 'STEP', code + '.stp'))   # 焊接件（板 + 筋）：轴测图取整件 STEP

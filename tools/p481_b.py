@@ -94,6 +94,8 @@ def register(C):
         p.bend(x, H3, LA - x, H3, W3)
         return p
 
+    C.iso('3420104A00', C.DXF('3420104A02.idw_图纸_1.dxf'))   # 图纸文件名是 A02，第 1 张是 A00 总图（带轴测图）
+
     @C.part('3420104A00')
     def _(q):
         # 明细栏：A01 护罩 ×1（焊接件，拆 U 形 ×2 + 直段 ×4）+ A02 ×2 + A03 ×1

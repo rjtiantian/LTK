@@ -25,24 +25,27 @@ ORDERS = {'单件/2026-11-19-AX191': ('单件_2026-11-19-AX191.xlsx', '展开图
           '475': ('NO.475.xlsx', 'NO.475.dxf', 'p475_'),
           '477-478': ('NO.477-NO.478.xlsx', 'NO.477-NO.478.dxf', 'p477_'),
           '481': ('NO.481.xlsx', 'NO.481.dxf', 'p481_'),
-          '482': ('NO.482.xlsx', 'NO.482.dxf', 'p482_')}
+          '482': ('NO.482.xlsx', 'NO.482.dxf', 'p482_'),
+          '482-钣金2': ('NO.482-钣金2.xlsx', 'NO.482-钣金2.dxf', 'p482_', '482'),          # 11-12 增补单，零件共用 482
+          '482-异常单1119': ('NO.482-异常单1119.xlsx', 'NO.482-异常单1119.dxf', 'p482_', '482')}
 
 
 def load(order):
-    xlsx, out, prefix = ORDERS[order]
-    C = Ctx(os.path.join(ROOT, order, 'DXF'))
+    xlsx, out, prefix = ORDERS[order][:3]
+    folder = ORDERS[order][3] if len(ORDERS[order]) > 3 else order     # 第 4 项：和别的单共用目录（增补单 / 异常单）
+    C = Ctx(os.path.join(ROOT, folder, 'DXF'))
     # 前缀以 _ 结尾（如 p475_）加载该订单的多个模块；否则只加载同名模块（避免 ps20261023 误带 ps20261023b）
     pat = prefix + '*.py' if prefix.endswith('_') else prefix + '.py'
     for f in sorted(glob.glob(os.path.join(os.path.dirname(__file__), pat))):
         m = importlib.import_module(os.path.basename(f)[:-3])
         m.register(C)
-    return C, os.path.join(ROOT, order, xlsx), os.path.join(ROOT, order, out)
+    return C, os.path.join(ROOT, folder, xlsx), os.path.join(ROOT, folder, out)
 
 
 if __name__ == '__main__':
     order = sys.argv[1]
     C, xlsx, out = load(order)
-    rep = build(xlsx, C.PARTS, out)
+    rep = build(xlsx, C.PARTS, out, C.ISO, C.customer, mirror=C.MIRROR)
     for c, s in rep:
         print(c, s)
     print('saved', out)
