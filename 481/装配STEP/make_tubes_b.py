@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """NO.481 B 批方管 STEP（交管材激光）：3420101A00 框架、3420161A00 / 3420162A00 安全门。
 
-用法（需 OCP）:  python 481/管材STEP/make_tubes_b.py  → 481/管材STEP/*.step、管材STEP/装配核对/*.step
+用法（需 OCP）:  python 481/装配STEP/make_tubes_b.py  → 481/装配STEP/<物料号>-<名称>-装配-1套.step
+11-23 用户：焊接件要整件装配体，不要单根零件 → 默认只出装配（框架连同 5 个 3400101A02 支撑腿件）；
+单根方管 STEP 要时把 PER_TUBE 改 True。
 几何取 DWG 矢量（各视图 1:1）：x 沿主视宽、y 沿主视高、z 由前（0）向后。
 做法照 flat-pattern 技能第 5 节：空心管，SUS304 外 R = 1.2t、内 R = 外 − t（图纸 / 明细栏的 R1 不用）；45° 斜接照图；
 孔只开在图纸标的那面壁（“Φ5.5 -8 深”“M8↧22.2”都小于管外形，不贯穿）；
@@ -23,7 +25,8 @@ PILOT = {'M6': 1.0, 'M8': 1.5, 'M10': 2.0}
 RHO = 7.93e-6
 S2 = math.sqrt(0.5)
 OUT = HERE
-CHK = os.path.join(OUT, '装配核对')
+CHK = os.path.join(HERE, '..', '装配STEP')
+PER_TUBE = False
 NW = TAB_W + 2 * CLR                 # 立柱缺口宽 13.5
 ND = TAB_L + CLR                     # 立柱缺口深（沿横撑方向）3.75
 
@@ -273,9 +276,20 @@ def door(H, xc, top_m6, bot_m6, rear_top, m6_inner, inner_on_top, xs55, ys_side,
     return [Bot, Top, Lf, Rt, Ce], [('Center', 'lo', 'Bot', 'z', 0), ('Center', 'hi', 'Top', 'z', 0)]
 
 
-def run(code, name, L, J, bom, rep):
+def feet_101():
+    """3400101A02 支撑腿件 10mm 50×50 R2、M16 开小径 Φ13.84：垫在 x=1800 端 5 根横管下（主视 / 俯视矢量 x 1800~1810，
+    y 0 / 750 / 1250、z 0 / 950；y750 只在 z950 那根 Hr_mid 下）"""
+    from frame3d import plate
+    pos = [(0, 0), (0, 950), (1250, 0), (1250, 950), (750, 950)]
+    return [('3400101A02 支撑腿件-10', plate('x', (1800, y, z), (1810, y + 50, z + 50), 2, [(y + 25, z + 25, 13.84)])) for y, z in pos]
+
+
+def run(code, name, L, J, bom, rep, extra=()):
     S = build(L, J)
-    write_assembly([(t.name + ' ' + t.spec, S[t.name]) for t in L], os.path.join(CHK, '%s_%s_方管装配.step' % (code, name)), '%s %s 方管' % (code, name))
+    asm = [(t.name + ' ' + t.spec, S[t.name]) for t in L] + list(extra)
+    fn = '%s-%s-装配-1套' % (code, name)
+    write_assembly(asm, os.path.join(CHK, fn + '.step'), fn)
+    print(fn, '零件', len(asm), '算重 %.2f kg' % (sum(volume(s) for _, s in asm) * RHO))
     # 干涉：两两共同体积
     bad = []
     for a, b in itertools.combinations(L, 2):
@@ -299,7 +313,8 @@ def run(code, name, L, J, bom, rep):
             tag = '' if len(tss) == 1 else '-%s' % 'abcdefgh'[i]
             s = S[ts[0].name]
             fn = '%s-%s-%s%s-%d件.step' % (code, name, spec, tag, len(ts))
-            write_assembly([(spec + tag, s)], os.path.join(OUT, fn), '%s %s %s' % (code, name, spec))
+            if PER_TUBE:
+                write_assembly([(spec + tag, s)], os.path.join(OUT, fn), '%s %s %s' % (code, name, spec))
             nh = len(ts[0].holes)
             rep.append((fn, '+'.join(t.name for t in ts), nh, round(volume(s) * RHO, 3)))
             tot += volume(s) * RHO * len(ts)
@@ -313,7 +328,7 @@ if __name__ == '__main__':
     sp = '方管50x50x2.5'
     L, J = frame_101()
     run('3420101A00', '框架', L, J, {sp + '-L1250-45': 1, sp + '-L550-45-45': 1, sp + '-L1800-45': 5, sp + '-L1000-45-45': 1, sp + '-L900': 5,
-                                     sp + '-L700': 5, sp + '-L450': 3, sp + '-L1700': 1, sp + '-L1200': 1}, rep)
+                                     sp + '-L700': 5, sp + '-L450': 3, sp + '-L1700': 1, sp + '-L1200': 1}, rep, feet_101())
     L, J = door(685, 1000, True, False, False, (1075, 1100), False, (165, 512.5, 860, 1190, 1635), (125, 560), (125, 560), (175, 560))
     run('3420161A00', '安全门', L, J, {'方管25x50x2-L1800-45-45': 2, '方管25x50x2-L685-45-45': 2, '方管50x50x2-L635': 1}, rep)
     L, J = door(885, 875, False, True, True, (950, 975), True, (165, 450, 735, 1065, 1350, 1635), (125, 760), (125, 760), (125, 720))

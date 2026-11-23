@@ -7,7 +7,7 @@
 “未注圆角 R5”的件：图上没画圆角的自由尖角按 R5 切；焊接贴合边（如 1610706A00 C 形件两端）不倒。
 说明、核对结论、需复核项见 482/notes_g.md。
 
-管材 STEP：python3 tools/p482_g.py → 482/管材STEP/（需 OCP）。
+支撑腿（1610629A00 / 707A00 / 1203A00）11-23 起出整件装配 STEP：482/装配STEP/make_legs_asm.py；下面 make_tubes() 单根方管已停用。
 """
 import os, sys, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -518,4 +518,4 @@ def make_tubes():
 
 
 if __name__ == '__main__':
-    make_tubes()
+    print('支撑腿改出整件装配：python 482/装配STEP/make_legs_asm.py（11-23 用户：要装配体，不要单根零件）')
